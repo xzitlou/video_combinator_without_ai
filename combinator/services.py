@@ -38,6 +38,22 @@ def _ext(name):
     return "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
 
+def set_clip_enabled(clip, enabled):
+    if clip.project.status != Project.Status.DRAFT:
+        raise GenerationError("Este proyecto ya fue generado.")
+    clip.enabled = enabled
+    clip.save(update_fields=["enabled"])
+
+
+def delete_clip(clip):
+    if clip.project.status != Project.Status.DRAFT:
+        raise GenerationError("Este proyecto ya fue generado.")
+    for field in (clip.file, clip.normalized_file):
+        if field:
+            field.delete(save=False)
+    clip.delete()
+
+
 def enabled_clips(project):
     clips = project.clips.filter(enabled=True)
     return (

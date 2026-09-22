@@ -19,6 +19,8 @@ python manage.py test combinator                                       # todos l
 python manage.py test combinator.tests.test_pipeline.FullPipelineTests # una clase
 ```
 
+Para ver la app: `runserver` + `rqworker default video`, crear un usuario en `/signup/` y una campaña en `/`. Las descargas y el ZIP requieren sesión y ser dueño del proyecto.
+
 Los tests usan Postgres (crean `test_video_combinator`). `FullPipelineTests` genera clips reales con FFmpeg y se salta si no está instalado. Los jobs se ejecutan en línea parcheando `services.enqueue` y usando `captureOnCommitCallbacks(execute=True)`.
 
 Configuración por variables de entorno en `config/settings.py` (`POSTGRES_*`, `REDIS_URL`, `USE_S3` + `S3_*`, `MAX_VARIANTS_PER_RUN`, `OUTPUT_TTL_SECONDS`, `ABANDONED_UPLOAD_TTL_SECONDS`). Sin `USE_S3`, los archivos van a `media/`.
@@ -49,7 +51,14 @@ IA generativa, publicación en TikTok, subtítulos, música, transiciones, edito
 - **FFmpeg/ffprobe** instalados en los workers.
 - **Almacenamiento de objetos** (S3/R2 vía django-storages) para los clips y las salidas. Los workers siempre copian el archivo a un directorio temporal antes de pasarlo a FFmpeg, así el mismo código funciona con disco local o S3. Pendiente: que el navegador suba directo al bucket con URLs prefirmadas, porque los clips pesan cientos de MB.
 
-Código en la app `combinator`: `services.py` tiene las operaciones de dominio (vistas y jobs llaman aquí), `tasks.py` los jobs de RQ, `ffmpeg.py` los comandos de FFmpeg y `cron.py` el job periódico.
+Código en la app `combinator`: `services.py` tiene las operaciones de dominio (vistas y jobs llaman aquí), `tasks.py` los jobs de RQ, `ffmpeg.py` los comandos de FFmpeg, `cron.py` el job periódico y `views.py` las pantallas y los endpoints JSON que usa `static/combinator/app.js`.
+
+### Pantallas
+- Sin frameworks CSS ni JS: `static/combinator/app.css` y `app.js` (vanilla). Plantillas en `templates/`. Textos de la interfaz en español; en la UI el `Project` se llama "campaña".
+- Una campaña tiene una sola pantalla (`project_detail`): tres columnas Hooks/Bodies/Closers, panel con la fórmula `hooks × bodies × closers` y el botón Generar; tras generar, la misma pantalla se bloquea y lista los videos con su tira de tres segmentos (proporcional a la duración de cada clip).
+- Cada rol tiene un color fijo (`--hook`, `--body`, `--closer`) que se usa en columnas, fórmula, códigos H01/B02/C01 y tiras. El color es información de rol; no usar esos colores para otra cosa. El botón principal es negro.
+- Subidas por XHR con barra de progreso; la página hace polling a `project_status` mientras haya clips normalizando o videos en cola. Django está en `es`, así que en atributos `style` usa `|unlocalize` para los floats.
+- Auth con `django.contrib.auth` (login, signup, logout). Toda vista de campaña filtra por `owner=request.user`.
 
 ### Retención de archivos (requisito del producto: no guardar el material del usuario)
 - El original subido se borra en cuanto existe la copia normalizada.

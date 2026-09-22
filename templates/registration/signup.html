@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Crear cuenta · Variantes{% endblock %}
+{% block body_class %}auth{% endblock %}
+{% block content %}
+<section class="auth-card">
+  <h1>Crear cuenta</h1>
+  <p class="lead">Tus videos no se guardan: los clips se borran al terminar y las descargas duran una hora.</p>
+  <form method="post" class="stack" novalidate>
+    {% csrf_token %}
+    {% for field in form %}
+    <label class="field {% if field.errors %}has-error{% endif %}">
+      <span>{% if field.name == 'username' %}Usuario{% elif field.name == 'email' %}Email{% elif field.name == 'password1' %}Contraseña{% else %}Repite la contraseña{% endif %}</span>
+      <input type="{{ field.field.widget.input_type }}" name="{{ field.html_name }}" value="{{ field.value|default:'' }}"
+             autocomplete="{% if 'password' in field.name %}new-password{% else %}{{ field.name }}{% endif %}"
+             {% if forloop.first %}autofocus{% endif %} {% if field.field.required %}required{% endif %}>
+      {% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+    </label>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary btn-block">Crear cuenta</button>
+  </form>
+  <p class="auth-switch">¿Ya tienes cuenta? <a href="{% url 'login' %}">Entra</a></p>
+</section>
+{% endblock %}

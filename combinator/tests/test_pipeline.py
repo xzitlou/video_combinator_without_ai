@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest import mock, skipUnless
 
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -31,6 +32,8 @@ def make_clip(path, size, fps, seconds, audio=True):
 
 class MediaTestCase(TestCase):
     def setUp(self):
+        self.user = User.objects.create_user("lou", password="secret-pass-123")
+        self.client.force_login(self.user)
         self.media = tempfile.mkdtemp()
         override = override_settings(MEDIA_ROOT=self.media)
         override.enable()
@@ -52,7 +55,7 @@ class GenerationRulesTests(MediaTestCase):
         )
 
     def test_only_enabled_clips_are_combined(self):
-        project = Project.objects.create(name="Campaña")
+        project = Project.objects.create(name="Campaña", owner=self.user)
         for i in (1, 2):
             self.ready_clip(project, Clip.Type.HOOK, i)
         self.ready_clip(project, Clip.Type.HOOK, 3, enabled=False)
@@ -69,7 +72,7 @@ class GenerationRulesTests(MediaTestCase):
 
     @override_settings(MAX_VARIANTS_PER_RUN=4)
     def test_limit_is_enforced(self):
-        project = Project.objects.create(name="x")
+        project = Project.objects.create(name="x", owner=self.user)
         for t in Clip.Type.values:
             for i in (1, 2):
                 self.ready_clip(project, t, i)
@@ -78,13 +81,13 @@ class GenerationRulesTests(MediaTestCase):
         self.assertFalse(Variant.objects.exists())
 
     def test_requires_one_of_each_type(self):
-        project = Project.objects.create(name="x")
+        project = Project.objects.create(name="x", owner=self.user)
         self.ready_clip(project, Clip.Type.HOOK, 1)
         with self.assertRaises(services.GenerationError):
             services.generate_variants(project.pk)
 
     def test_expired_outputs_are_deleted(self):
-        project = Project.objects.create(name="x", status=Project.Status.DONE)
+        project = Project.objects.create(name="x", owner=self.user, status=Project.Status.DONE)
         clips = [self.ready_clip(project, t, 1) for t in Clip.Type.values]
         variant = Variant.objects.create(project=project, hook=clips[0], body=clips[1], closer=clips[2])
         variant.output_file.save("out.mp4", SimpleUploadedFile("out.mp4", b"data"), save=False)
@@ -102,7 +105,7 @@ class GenerationRulesTests(MediaTestCase):
         self.assertEqual(self.stored_files(), [])
 
     def test_abandoned_draft_uploads_are_deleted(self):
-        project = Project.objects.create(name="x")
+        project = Project.objects.create(name="x", owner=self.user)
         clip = self.ready_clip(project, Clip.Type.HOOK, 1)
         clip.normalized_file.save("h.mp4", SimpleUploadedFile("h.mp4", b"data"))
         Project.objects.filter(pk=project.pk).update(created_at=timezone.now() - timedelta(days=2))
@@ -118,7 +121,7 @@ class FullPipelineTests(MediaTestCase):
     def test_upload_generate_and_purge_uploads(self):
         tmp = Path(self.media) / "_src"
         tmp.mkdir()
-        project = Project.objects.create(name="Campaña Septiembre")
+        project = Project.objects.create(name="Campaña Septiembre", owner=self.user)
         sources = [
             (Clip.Type.HOOK, make_clip(tmp / "h.mp4", "1920x1080", 25, 1)),          # landscape
             (Clip.Type.HOOK, make_clip(tmp / "h2.mp4", "720x1280", 60, 1, audio=False)),  # no audio

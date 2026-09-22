@@ -1,4 +1,6 @@
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -8,6 +10,7 @@ class Project(models.Model):
         PROCESSING = "processing", "Procesando"
         DONE = "done", "Terminado"
 
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="projects")
     name = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -63,6 +66,10 @@ class Clip(models.Model):
         return f"{self.get_type_display()} {self.order}: {self.original_name}"
 
     @property
+    def is_ready(self):
+        return self.status == self.Status.READY
+
+    @property
     def code(self):
         """Short label used in variant names, e.g. H02 / B04 / C01."""
         return f"{self.type[0].upper()}{self.order:02d}"
@@ -103,6 +110,14 @@ class Variant(models.Model):
 
     def __str__(self):
         return self.label
+
+    @property
+    def clips(self):
+        return (self.hook, self.body, self.closer)
+
+    @property
+    def is_downloadable(self):
+        return self.status == self.Status.DONE and bool(self.output_file) and self.expires_at > timezone.now()
 
     @property
     def label(self):

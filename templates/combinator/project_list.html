@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Mis campañas · Variantes{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Mis campañas</h1>
+  <form method="post" action="{% url 'combinator:project_create' %}" class="inline-form">
+    {% csrf_token %}
+    {{ form.name }}
+    <button type="submit" class="btn btn-primary">Nueva campaña</button>
+  </form>
+</div>
+
+{% if projects %}
+<ul class="project-rows">
+  {% for project in projects %}
+  <li>
+    <a class="project-row" href="{% url 'combinator:project_detail' project.pk %}">
+      <span class="project-name">{{ project.name }}</span>
+      <span class="project-meta">
+        {% if project.status == 'draft' %}
+          {{ project.clip_total }} clip{{ project.clip_total|pluralize }} · sin generar
+        {% elif project.status == 'processing' %}
+          <span class="status status-processing">Generando</span> {{ project.variant_total }} videos
+        {% elif project.ready_total %}
+          <span class="status status-done">{{ project.ready_total }} video{{ project.ready_total|pluralize }} para descargar</span>
+        {% else %}
+          {{ project.variant_total }} videos · descargas vencidas
+        {% endif %}
+      </span>
+      <time class="project-date" datetime="{{ project.created_at|date:'c' }}">{{ project.created_at|date:"j M" }}</time>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<section class="empty">
+  <p class="empty-formula"><b class="hook">2</b> × <b class="body">3</b> × <b class="closer">2</b> = 12 videos</p>
+  <p>Crea una campaña, sube unos cuantos hooks, bodies y closers y obtén cada combinación posible como un MP4 vertical listo para publicar.</p>
+</section>
+{% endif %}
+{% endblock %}

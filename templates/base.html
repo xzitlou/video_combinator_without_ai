@@ -1,0 +1,36 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Variantes{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'combinator/app.css' %}">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<header class="topbar">
+  <a class="wordmark" href="{% url 'combinator:project_list' %}">Variantes</a>
+  {% if user.is_authenticated %}
+  <nav class="topbar-nav">
+    <a href="{% url 'combinator:project_list' %}">Mis campañas</a>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit" class="link">Salir <span class="muted">({{ user.username }})</span></button>
+    </form>
+  </nav>
+  {% endif %}
+</header>
+
+<main class="page">
+  {% if messages %}
+  <div class="messages">
+    {% for message in messages %}<p class="message message-{{ message.tags }}">{{ message }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -47,7 +47,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -85,6 +85,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "combinator:project_list"
+LOGOUT_REDIRECT_URL = "login"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Storage -----------------------------------------------------------------
@@ -126,6 +132,9 @@ MAX_VARIANTS_PER_RUN = int(os.environ.get("MAX_VARIANTS_PER_RUN", 100))
 OUTPUT_TTL_SECONDS = int(os.environ.get("OUTPUT_TTL_SECONDS", 60 * 60))
 # Uploaded clips of a project that never gets generated are deleted after this.
 ABANDONED_UPLOAD_TTL_SECONDS = int(os.environ.get("ABANDONED_UPLOAD_TTL_SECONDS", 60 * 60 * 24))
+
+# Per-clip upload limit (bytes). Uploads stream to a temp file, not memory.
+MAX_CLIP_SIZE = int(os.environ.get("MAX_CLIP_SIZE", 500 * 1024 * 1024))
 
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
