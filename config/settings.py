@@ -94,28 +94,9 @@ LOGOUT_REDIRECT_URL = "login"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Storage -----------------------------------------------------------------
-# Local disk in development; S3-compatible bucket (S3, R2, MinIO) when USE_S3=1.
-MEDIA_ROOT = BASE_DIR / "media"
-MEDIA_URL = "media/"
-
-if env_bool("USE_S3"):
-    STORAGES = {
-        "default": {
-            "BACKEND": "storages.backends.s3.S3Storage",
-            "OPTIONS": {
-                "bucket_name": os.environ["S3_BUCKET"],
-                "endpoint_url": os.environ.get("S3_ENDPOINT_URL") or None,
-                "access_key": os.environ.get("S3_ACCESS_KEY_ID"),
-                "secret_key": os.environ.get("S3_SECRET_ACCESS_KEY"),
-                "region_name": os.environ.get("S3_REGION") or None,
-                "default_acl": None,
-                "file_overwrite": False,
-                "querystring_auth": True,
-                "querystring_expire": 60 * 5,
-            },
-        },
-        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-    }
+# Everything (uploads, normalized clips, outputs) lives on local disk. The web
+# process and the RQ workers must see the same MEDIA_ROOT. Never served as static.
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 
 # --- Queues --------------------------------------------------------------------
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")

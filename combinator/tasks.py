@@ -1,6 +1,5 @@
 """RQ job entry points. They run in `rqworker video`, never inside a request."""
 
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -8,13 +7,6 @@ from django.core.files import File
 
 from . import ffmpeg, services
 from .models import Clip, Variant
-
-
-def _fetch(field, dest):
-    """Copy a stored file (local disk or S3) to a local path ffmpeg can read."""
-    with field.storage.open(field.name, "rb") as src, open(dest, "wb") as out:
-        shutil.copyfileobj(src, out)
-    return dest
 
 
 def normalize_clip(clip_id):
@@ -26,9 +18,8 @@ def normalize_clip(clip_id):
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            src = _fetch(clip.file, Path(tmp) / "source")
             dst = Path(tmp) / "normalized.mp4"
-            clip.duration = ffmpeg.normalize(src, dst)
+            clip.duration = ffmpeg.normalize(clip.file.path, dst)
             with open(dst, "rb") as f:
                 clip.normalized_file.save(f"{clip.type}_{clip.order:02d}.mp4", File(f), save=False)
     except Exception as exc:
@@ -55,12 +46,8 @@ def render_variant(variant_id):
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            parts = [
-                _fetch(clip.normalized_file, Path(tmp) / f"{i}.mp4")
-                for i, clip in enumerate((variant.hook, variant.body, variant.closer))
-            ]
             out = Path(tmp) / "output.mp4"
-            ffmpeg.concat(parts, out, tmp)
+            ffmpeg.concat([clip.normalized_file.path for clip in variant.clips], out, tmp)
             with open(out, "rb") as f:
                 variant.output_file.save(variant.output_name, File(f), save=False)
         services.mark_variant_done(variant)

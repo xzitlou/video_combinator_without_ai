@@ -7,7 +7,6 @@ from django.contrib.auth.decorators import login_required
 from django.http import (
     FileResponse,
     Http404,
-    HttpResponseRedirect,
     JsonResponse,
     StreamingHttpResponse,
 )
@@ -209,16 +208,6 @@ def download_variant(request, pk):
     )
     if not variant.is_downloadable:
         raise Http404("Este video ya no está disponible.")
-
-    storage = variant.output_file.storage
-    if hasattr(storage, "bucket_name"):
-        # S3: short-lived signed URL (querystring_expire), so the link can't outlive the window.
-        return HttpResponseRedirect(
-            storage.url(
-                variant.output_file.name,
-                parameters={"ResponseContentDisposition": f'attachment; filename="{variant.output_name}"'},
-            )
-        )
     return FileResponse(variant.output_file.open("rb"), as_attachment=True, filename=variant.output_name)
 
 

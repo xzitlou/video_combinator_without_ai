@@ -23,7 +23,7 @@ Para ver la app: `runserver` + `rqworker default video`, crear un usuario en `/s
 
 Los tests usan Postgres (crean `test_video_combinator`). `FullPipelineTests` genera clips reales con FFmpeg y se salta si no está instalado. Los jobs se ejecutan en línea parcheando `services.enqueue` y usando `captureOnCommitCallbacks(execute=True)`.
 
-Configuración por variables de entorno en `config/settings.py` (`POSTGRES_*`, `REDIS_URL`, `USE_S3` + `S3_*`, `MAX_VARIANTS_PER_RUN`, `OUTPUT_TTL_SECONDS`, `ABANDONED_UPLOAD_TTL_SECONDS`). Sin `USE_S3`, los archivos van a `media/`.
+Configuración por variables de entorno en `config/settings.py` (`POSTGRES_*`, `REDIS_URL`, `MEDIA_ROOT`, `MAX_VARIANTS_PER_RUN`, `OUTPUT_TTL_SECONDS`, `ABANDONED_UPLOAD_TTL_SECONDS`).
 
 ## Producto
 
@@ -49,7 +49,7 @@ IA generativa, publicación en TikTok, subtítulos, música, transiciones, edito
 - **PostgreSQL** como base de datos.
 - **Django-RQ + Redis** para todo el trabajo con FFmpeg. Nunca renderizar dentro del request. Cada variante es un job propio (`queue.enqueue(render_variant, variant.id, job_timeout=...)`). La normalización de clips también se encola.
 - **FFmpeg/ffprobe** instalados en los workers.
-- **Almacenamiento de objetos** (S3/R2 vía django-storages) para los clips y las salidas. Los workers siempre copian el archivo a un directorio temporal antes de pasarlo a FFmpeg, así el mismo código funciona con disco local o S3. Pendiente: que el navegador suba directo al bucket con URLs prefirmadas, porque los clips pesan cientos de MB.
+- **Disco local** para todo (clips originales, normalizados y salidas) en `MEDIA_ROOT`. Decisión del usuario: por ahora nada de S3 ni almacenamiento de objetos. El servidor web y los workers deben compartir ese directorio; FFmpeg lee directamente de `FieldFile.path`.
 
 Código en la app `combinator`: `services.py` tiene las operaciones de dominio (vistas y jobs llaman aquí), `tasks.py` los jobs de RQ, `ffmpeg.py` los comandos de FFmpeg, `cron.py` el job periódico y `views.py` las pantallas y los endpoints JSON que usa `static/combinator/app.js`.
 
@@ -63,7 +63,7 @@ Código en la app `combinator`: `services.py` tiene las operaciones de dominio (
 ### Retención de archivos (requisito del producto: no guardar el material del usuario)
 - El original subido se borra en cuanto existe la copia normalizada.
 - Cuando todas las variantes de un proyecto terminan (listas o con error), `finalize_project_if_done` borra todos los clips normalizados del proyecto. Las filas `Clip` se conservan, sin archivos, para mantener la trazabilidad. Un proyecto se genera **una sola vez**.
-- Las salidas se pueden descargar durante `OUTPUT_TTL_SECONDS` (1 h). La descarga pasa siempre por `download_variant`, que rechaza la petición al vencer `expires_at` y, en S3, redirige a una URL firmada de 5 min. `purge_expired` borra los archivos vencidos.
+- Las salidas se pueden descargar durante `OUTPUT_TTL_SECONDS` (1 h). La descarga pasa siempre por `download_variant`, que rechaza la petición al vencer `expires_at`. `purge_expired` borra los archivos vencidos.
 - Los borradores que nunca se generan pierden sus archivos a las 24 h (`ABANDONED_UPLOAD_TTL_SECONDS`).
 - `media/` no se sirve como estático. No añadas rutas que expongan archivos sin pasar por estas reglas.
 

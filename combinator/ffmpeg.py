@@ -76,8 +76,8 @@ def normalize(src, dst):
 def concat(paths, dst, workdir):
     """Stream-copy already-normalized clips into one MP4 (no re-encode)."""
     list_file = Path(workdir) / "concat.txt"
-    # Callers pass paths inside workdir with safe names, so no quote escaping is needed.
-    list_file.write_text("".join(f"file '{Path(p).resolve()}'\n" for p in paths))
+    # concat demuxer syntax: single-quoted path, embedded quotes written as '\''
+    list_file.write_text("".join("file '{}'\n".format(str(Path(p).resolve()).replace("'", "'\\''")) for p in paths))
     _run([
         settings.FFMPEG_BIN, "-y", "-v", "error",
         "-f", "concat", "-safe", "0", "-i", str(list_file),
