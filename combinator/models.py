@@ -105,10 +105,12 @@ class Variant(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="variants")
     # Clip rows are kept after their files are purged, so variants stay traceable
     # (needed later to aggregate performance per hook/body/closer).
-    hook = models.ForeignKey(Clip, on_delete=models.PROTECT, related_name="+")
-    body = models.ForeignKey(Clip, on_delete=models.PROTECT, related_name="+")
+    # CASCADE: clips can only be deleted while the project is a draft (no variants yet), so
+    # in practice this only fires when the whole project or its owner is deleted.
+    hook = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+")
+    body = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+")
     # Closers are optional: without enabled closers each variant is hook + body.
-    closer = models.ForeignKey(Clip, on_delete=models.PROTECT, related_name="+", null=True, blank=True)
+    closer = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
     output_file = models.FileField(upload_to=variant_output_to, max_length=500, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     error = models.TextField(blank=True)

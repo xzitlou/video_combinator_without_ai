@@ -86,6 +86,18 @@ class ViewTests(TestCase):
         self.assertEqual(self.client.post(reverse("combinator:clip_delete", args=[clip.uuid])).status_code, 409)
         self.assertTrue(Clip.objects.filter(pk=clip.pk).exists())
 
+    def test_generated_project_and_owner_can_be_deleted(self):
+        from combinator.models import Variant
+
+        clips = [
+            Clip.objects.create(project=self.project, type=t, order=1, original_name=f"{t}.mp4", status="ready")
+            for t in ("hook", "body")
+        ]
+        Variant.objects.create(project=self.project, hook=clips[0], body=clips[1])
+        self.user.delete()
+        self.assertFalse(Project.objects.exists())
+        self.assertFalse(Variant.objects.exists())
+
     def test_urls_use_uuids_not_ids(self):
         page = self.client.get(reverse("combinator:project_list")).content.decode()
         self.assertIn(str(self.project.uuid), page)
