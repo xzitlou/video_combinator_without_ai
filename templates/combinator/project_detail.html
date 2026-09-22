@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <a class="back" href="{% url 'combinator:project_list' %}">← Mis campañas</a>
+    <a class="back" href="{% url 'combinator:project_list' %}">← Mis lotes</a>
     <h1>{{ project.name }}</h1>
   </div>
   {% if project.status == 'processing' %}<span class="status status-processing" id="project-status">Generando videos</span>
@@ -25,6 +25,7 @@
       <h2>{{ column.label }}</h2>
       <span class="column-count" data-count-for="{{ column.type }}">{{ column.clips|length }}</span>
     </header>
+    <p class="column-help">{{ column.help }}</p>
 
     <ul class="clips" data-list="{{ column.type }}">
       {% for clip in column.clips %}
@@ -46,11 +47,11 @@
     {% if project.status == 'draft' %}
     <label class="dropzone">
       <input type="file" accept="{{ accepted }}" multiple data-type="{{ column.type }}">
-      <span class="dropzone-text">Añadir {{ column.label|lower }}</span>
+      <span class="dropzone-text">{{ column.add }}</span>
       <span class="dropzone-hint">Arrastra videos o haz clic</span>
     </label>
     {% elif not column.clips %}
-    <p class="column-empty">Sin clips</p>
+    <p class="column-empty">{% if column.optional %}Sin cierre{% else %}Sin clips{% endif %}</p>
     {% endif %}
   </div>
   {% endfor %}
@@ -58,15 +59,15 @@
   <aside class="panel">
     {% if project.status == 'draft' %}
     <p class="formula" aria-live="polite">
-      <span class="term"><b class="hook" data-n="hook">0</b><small>hooks</small></span><span class="op">×</span><span class="term"><b class="body" data-n="body">0</b><small>bodies</small></span><span class="op">×</span><span class="term"><b class="closer" data-n="closer">0</b><small>closers</small></span>
+      <span class="term"><b class="hook" data-n="hook">0</b><small>ganchos</small></span><span class="op">×</span><span class="term"><b class="body" data-n="body">0</b><small>contenidos</small></span><span class="op" data-closer-term>×</span><span class="term" data-closer-term><b class="closer" data-n="closer">0</b><small>cierres</small></span>
     </p>
     <p class="formula-result"><b id="count">{{ count }}</b> <span id="count-label">video{{ count|pluralize }}</span></p>
     <form method="post" action="{% url 'combinator:project_generate' project.pk %}" id="generate-form">
       {% csrf_token %}
       <button type="submit" class="btn btn-primary btn-block" id="generate" disabled>Generar videos</button>
     </form>
-    <p class="panel-note" id="panel-note">Sube al menos un clip de cada tipo.</p>
-    <p class="panel-fine">Máximo {{ max_variants }} videos por campaña. Los clips que subas se borran cuando termina la generación.</p>
+    <p class="panel-note" id="panel-note">Sube al menos un gancho y un contenido.</p>
+    <p class="panel-fine">Máximo {{ max_variants }} videos por lote. Los clips que subas se borran cuando termina la generación.</p>
     {% else %}
     <p class="formula-result formula-result-plain"><b id="count">{{ variants|length }}</b> <span>video{{ variants|length|pluralize }}</span></p>
     <p class="panel-progress"><span id="done-count">{{ ready_total }}</span> listos para descargar</p>
@@ -83,9 +84,9 @@
     {% for variant in variants %}
     <li class="variant variant-{{ variant.status }}" data-variant="{{ variant.pk }}" data-status="{{ variant.status }}">
       <span class="strip" style="--w: {% widthratio variant.total_duration max_duration 100 %}%" aria-hidden="true">
-        <i class="hook" style="flex: {{ variant.hook.duration|default:1|unlocalize }}"></i><i class="body" style="flex: {{ variant.body.duration|default:1|unlocalize }}"></i><i class="closer" style="flex: {{ variant.closer.duration|default:1|unlocalize }}"></i>
+        {% for clip in variant.clips %}<i class="{{ clip.type }}" style="flex: {{ clip.duration|default:1|unlocalize }}"></i>{% endfor %}
       </span>
-      <span class="variant-label"><b class="hook">{{ variant.hook.code }}</b> + <b class="body">{{ variant.body.code }}</b> + <b class="closer">{{ variant.closer.code }}</b></span>
+      <span class="variant-label">{% for clip in variant.clips %}{% if not forloop.first %} + {% endif %}<b class="{{ clip.type }}">{{ clip.code }}</b>{% endfor %}</span>
       <span class="variant-duration">{{ variant.total_duration|floatformat:0 }} s</span>
       <span class="variant-state" data-state>
         {% if variant.is_downloadable %}

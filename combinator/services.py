@@ -22,7 +22,7 @@ def enqueue(func, *args):
 
 def add_clip(project, clip_type, uploaded_file):
     if project.status != Project.Status.DRAFT:
-        raise GenerationError("No se pueden añadir clips a un proyecto ya generado.")
+        raise GenerationError("Este lote ya fue generado; crea uno nuevo para añadir clips.")
     last = project.clips.filter(type=clip_type).aggregate(m=Max("order"))["m"] or 0
     clip = Clip(project=project, type=clip_type, original_name=uploaded_file.name, order=last + 1)
     clip.file.save(f"{clip_type}_{last + 1:02d}{_ext(uploaded_file.name)}", uploaded_file, save=False)
@@ -40,14 +40,14 @@ def _ext(name):
 
 def set_clip_enabled(clip, enabled):
     if clip.project.status != Project.Status.DRAFT:
-        raise GenerationError("Este proyecto ya fue generado.")
+        raise GenerationError("Este lote ya fue generado.")
     clip.enabled = enabled
     clip.save(update_fields=["enabled"])
 
 
 def delete_clip(clip):
     if clip.project.status != Project.Status.DRAFT:
-        raise GenerationError("Este proyecto ya fue generado.")
+        raise GenerationError("Este lote ya fue generado.")
     for field in (clip.file, clip.normalized_file):
         if field:
             field.delete(save=False)
@@ -63,34 +63,39 @@ def enabled_clips(project):
     )
 
 
+def combinations(hooks, bodies, closers):
+    """hook × body × closer; with no closers every variant is just hook + body."""
+    return product(hooks, bodies, closers or [None])
+
+
 def variant_count(project):
     hooks, bodies, closers = enabled_clips(project)
-    return len(hooks) * len(bodies) * len(closers)
+    return len(hooks) * len(bodies) * max(len(closers), 1)
 
 
 def generate_variants(project_id):
-    """Create one Variant per hook × body × closer combination and queue the renders."""
+    """Create one Variant per hook × body (× closer) combination and queue the renders."""
     from .tasks import render_variant
 
     with transaction.atomic():
         project = Project.objects.select_for_update().get(pk=project_id)
         if project.status != Project.Status.DRAFT or project.uploads_purged_at:
-            raise GenerationError("Este proyecto ya fue generado.")
+            raise GenerationError("Este lote ya fue generado.")
 
         hooks, bodies, closers = enabled_clips(project)
-        total = len(hooks) * len(bodies) * len(closers)
-        if total == 0:
-            raise GenerationError("Necesitas al menos un hook, un body y un closer activos.")
+        if not hooks or not bodies:
+            raise GenerationError("Necesitas al menos un gancho y un contenido activos.")
+        total = len(hooks) * len(bodies) * max(len(closers), 1)
         if total > settings.MAX_VARIANTS_PER_RUN:
             raise GenerationError(
-                f"{total} variantes superan el máximo de {settings.MAX_VARIANTS_PER_RUN} por ejecución."
+                f"{total} videos superan el máximo de {settings.MAX_VARIANTS_PER_RUN} por ejecución."
             )
         if any(c.status != Clip.Status.READY for c in hooks + bodies + closers):
-            raise GenerationError("Espera a que todos los clips activos terminen de procesarse.")
+            raise GenerationError("Espera a que todos los clips activos terminen de prepararse.")
 
         variants = Variant.objects.bulk_create(
             Variant(project=project, hook=h, body=b, closer=c)
-            for h, b, c in product(hooks, bodies, closers)
+            for h, b, c in combinations(hooks, bodies, closers)
         )
         project.status = Project.Status.PROCESSING
         project.save(update_fields=["status"])

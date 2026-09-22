@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest import mock, skipUnless
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -32,7 +32,7 @@ def make_clip(path, size, fps, seconds, audio=True):
 
 class MediaTestCase(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user("lou", password="secret-pass-123")
+        self.user = get_user_model().objects.create_user("lou@example.com", password="secret-pass-123")
         self.client.force_login(self.user)
         self.media = tempfile.mkdtemp()
         override = override_settings(MEDIA_ROOT=self.media)
@@ -80,11 +80,38 @@ class GenerationRulesTests(MediaTestCase):
             services.generate_variants(project.pk)
         self.assertFalse(Variant.objects.exists())
 
-    def test_requires_one_of_each_type(self):
+    def test_requires_hook_and_body(self):
         project = Project.objects.create(name="x", owner=self.user)
         self.ready_clip(project, Clip.Type.HOOK, 1)
+        self.ready_clip(project, Clip.Type.CLOSER, 1)
         with self.assertRaises(services.GenerationError):
             services.generate_variants(project.pk)
+
+    def test_closer_is_optional(self):
+        project = Project.objects.create(name="Lote", owner=self.user)
+        for i in (1, 2):
+            self.ready_clip(project, Clip.Type.HOOK, i)
+        for i in (1, 2, 3):
+            self.ready_clip(project, Clip.Type.BODY, i)
+        self.ready_clip(project, Clip.Type.CLOSER, 1, enabled=False)
+
+        self.assertEqual(services.variant_count(project), 6)
+        with mock.patch("combinator.tasks.render_variant"):
+            variants = services.generate_variants(project.pk)
+        self.assertEqual(len(variants), 6)
+        self.assertTrue(all(v.closer is None for v in variants))
+        self.assertEqual(variants[0].label, "GA01 + CO01")
+        self.assertEqual(variants[0].output_name, "lote_ga01_co01.mp4")
+
+    def test_closers_are_permuted_when_present(self):
+        project = Project.objects.create(name="Lote", owner=self.user)
+        self.ready_clip(project, Clip.Type.HOOK, 1)
+        self.ready_clip(project, Clip.Type.BODY, 1)
+        for i in (1, 2):
+            self.ready_clip(project, Clip.Type.CLOSER, i)
+        with mock.patch("combinator.tasks.render_variant"):
+            variants = services.generate_variants(project.pk)
+        self.assertEqual([v.label for v in variants], ["GA01 + CO01 + CI01", "GA01 + CO01 + CI02"])
 
     def test_expired_outputs_are_deleted(self):
         project = Project.objects.create(name="x", owner=self.user, status=Project.Status.DONE)
@@ -157,4 +184,24 @@ class FullPipelineTests(MediaTestCase):
             self.stored_files(),
             sorted(f"projects/{project.pk}/outputs/{v.output_name}" for v in variants),
         )
-        self.assertEqual(variants[0].output_name, "campana-septiembre_h01_b01_c01.mp4")
+        self.assertEqual(variants[0].output_name, "campana-septiembre_ga01_co01_ci01.mp4")
+
+    def test_render_without_closer(self):
+        tmp = Path(self.media) / "_src"
+        tmp.mkdir()
+        project = Project.objects.create(name="Sin cierre", owner=self.user)
+        sources = [
+            (Clip.Type.HOOK, make_clip(tmp / "h.mp4", "1080x1920", 30, 1)),
+            (Clip.Type.BODY, make_clip(tmp / "b.mp4", "1080x1920", 30, 2)),
+        ]
+        shutil.rmtree(tmp)
+        with self.captureOnCommitCallbacks(execute=True):
+            for clip_type, data in sources:
+                services.add_clip(project, clip_type, SimpleUploadedFile("clip.mp4", data))
+        with self.captureOnCommitCallbacks(execute=True):
+            services.generate_variants(project.pk)
+
+        variant = project.variants.get()
+        self.assertEqual(variant.status, Variant.Status.DONE, variant.error)
+        duration, _ = ffmpeg.probe(variant.output_file.path)
+        self.assertAlmostEqual(duration, 3, delta=0.2)

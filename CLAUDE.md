@@ -19,7 +19,7 @@ python manage.py test combinator                                       # todos l
 python manage.py test combinator.tests.test_pipeline.FullPipelineTests # una clase
 ```
 
-Para ver la app: `runserver` + `rqworker default video`, crear un usuario en `/signup/` y una campaña en `/`. Las descargas y el ZIP requieren sesión y ser dueño del proyecto.
+Para ver la app: `runserver` + `rqworker default video`, crear una cuenta en `/signup/` (con correo) y un lote en `/`. Las descargas y el ZIP requieren sesión y ser dueño del proyecto.
 
 Los tests usan Postgres (crean `test_video_combinator`). `FullPipelineTests` genera clips reales con FFmpeg y se salta si no está instalado. Los jobs se ejecutan en línea parcheando `services.enqueue` y usando `captureOnCommitCallbacks(execute=True)`.
 
@@ -27,11 +27,15 @@ Configuración por variables de entorno en `config/settings.py` (`POSTGRES_*`, `
 
 ## Producto
 
-SaaS web para crear variantes de video para TikTok **sin IA**. El usuario sube clips, marca cada uno como **hook**, **body** o **closer**, activa o desactiva los que quiere usar y el sistema genera con FFmpeg todas las combinaciones `hook × body × closer` como MP4 listos para publicar. Ejemplo: 2 hooks × 3 bodies × 2 closers = 12 videos.
+SaaS web para producir mucho contenido para TikTok **sin IA**. El usuario crea un **lote**, sube clips en tres grupos (**Ganchos**, **Contenido**, **Cierres**), activa o desactiva los que quiere usar y el sistema genera con FFmpeg todas las combinaciones como MP4 listos para publicar. Ejemplo: 2 ganchos × 3 contenidos × 2 cierres = 12 videos.
+
+**Los cierres son opcionales.** Sin cierres activos, cada video es gancho + contenido (2 × 3 = 6). Si hay cierres, también se combinan.
+
+Vocabulario: en código se mantienen `Project`/`hook`/`body`/`closer`; en la interfaz se dice **lote**, **gancho**, **contenido** y **cierre**, nunca "campaña", "hook", "body" o "closer". Los códigos de clip son `GA01`, `CO02` y `CI01` (dos letras porque Contenido y Cierre empiezan por C) y aparecen en la UI y en los nombres de archivo.
 
 ### Alcance del MVP
 - Flujo: crear proyecto → subir clips → marcar tipo → elegir combinaciones → generar → ver y descargar (uno a uno o en ZIP).
-- Una sola pantalla con tres grupos (Hooks, Bodies, Closers). Cada clip se puede activar o desactivar, lo que permite tener 20 hooks guardados y usar solo 3 en una campaña.
+- Una sola pantalla con tres grupos (Ganchos, Contenido, Cierres), cada uno con una descripción breve de su función. Cada clip se puede activar o desactivar.
 - Contador en vivo (`2 × 3 × 1 = 6 videos`) y botón "Generar N variantes".
 - Lista de variantes con su estado (pendiente / procesando / listo / error).
 - **Límite de 100 variantes por ejecución.**
@@ -40,7 +44,7 @@ SaaS web para crear variantes de video para TikTok **sin IA**. El usuario sube c
 IA generativa, publicación en TikTok, subtítulos, música, transiciones, editor/timeline, efectos, thumbnails, analytics de redes, eliminación de silencios, voces o avatares.
 
 ### Hoja de ruta
-- **1.1:** varios bodies con orden variable (H1+B1+B2+C1, H1+B2+B1+C1…). El modelo `hook/body/closer` evolucionará a grupos de segmentos genéricos y ordenados, pero el MVP no debe diseñarse así desde el principio.
+- **1.1:** varios contenidos por video con orden variable (H1+B1+B2+C1, H1+B2+B1+C1…). El modelo `hook/body/closer` evolucionará a grupos de segmentos genéricos y ordenados, pero el MVP no debe diseñarse así desde el principio.
 - **Después:** registrar métricas (views) por variante y agregarlas por hook/body/closer para encontrar qué piezas funcionan mejor ("Creative Testing Engine"). Por eso cada variante guarda qué clips usó.
 
 ## Arquitectura
@@ -54,11 +58,11 @@ IA generativa, publicación en TikTok, subtítulos, música, transiciones, edito
 Código en la app `combinator`: `services.py` tiene las operaciones de dominio (vistas y jobs llaman aquí), `tasks.py` los jobs de RQ, `ffmpeg.py` los comandos de FFmpeg, `cron.py` el job periódico y `views.py` las pantallas y los endpoints JSON que usa `static/combinator/app.js`.
 
 ### Pantallas
-- Sin frameworks CSS ni JS: `static/combinator/app.css` y `app.js` (vanilla). Plantillas en `templates/`. Textos de la interfaz en español; en la UI el `Project` se llama "campaña".
-- Una campaña tiene una sola pantalla (`project_detail`): tres columnas Hooks/Bodies/Closers, panel con la fórmula `hooks × bodies × closers` y el botón Generar; tras generar, la misma pantalla se bloquea y lista los videos con su tira de tres segmentos (proporcional a la duración de cada clip).
+- Sin frameworks CSS ni JS: `static/combinator/app.css` y `app.js` (vanilla). Plantillas en `templates/`. Textos de la interfaz en español.
+- Un lote tiene una sola pantalla (`project_detail`): tres columnas definidas en `views.COLUMNS` (etiqueta, descripción, texto del botón), panel con la fórmula `ganchos × contenidos × cierres` y el botón Generar; tras generar, la misma pantalla se bloquea y lista los videos con su tira de tres segmentos (proporcional a la duración de cada clip).
 - Cada rol tiene un color fijo (`--hook`, `--body`, `--closer`) que se usa en columnas, fórmula, códigos H01/B02/C01 y tiras. El color es información de rol; no usar esos colores para otra cosa. El botón principal es negro.
 - Subidas por XHR con barra de progreso; la página hace polling a `project_status` mientras haya clips normalizando o videos en cola. Django está en `es`, así que en atributos `style` usa `|unlocalize` para los floats.
-- Auth con `django.contrib.auth` (login, signup, logout). Toda vista de campaña filtra por `owner=request.user`.
+- Auth en la app `accounts` (login y registro por correo, logout). Toda vista de lote filtra por `owner=request.user`.
 
 ### Retención de archivos (requisito del producto: no guardar el material del usuario)
 - El original subido se borra en cuanto existe la copia normalizada.
@@ -72,11 +76,12 @@ Pipeline: `SUBIDA → NORMALIZAR CLIPS → GENERAR COMBINACIONES → COLA → WO
 ### Modelo de datos mínimo
 - `Project`: name, created_at, status
 - `Clip`: project, type (`hook|body|closer`), file, duration, order, enabled
-- `Variant`: project, hook, body, closer, output_file, status, error, created_at
+- `Variant`: project, hook, body, closer (nullable), output_file, status, error, created_at
+- `accounts.User`: modelo de usuario propio con `email` como `USERNAME_FIELD` (sin username). El login no distingue mayúsculas en el correo.
 
-Los registros `Variant` se crean al pulsar "Generar", a partir de `itertools.product(hooks, bodies, closers)` usando solo los clips habilitados. Validar el límite de 100 antes de crear nada.
+Los registros `Variant` se crean al pulsar "Generar" con `services.combinations()` (producto de ganchos × contenidos × cierres, o × `[None]` si no hay cierres) usando solo los clips habilitados. Usa siempre `Variant.clips` para recorrer los segmentos, porque omite el cierre vacío. Validar el límite de 100 antes de crear nada.
 
 ### Pipeline de video
 1. **Normalizar cada clip una sola vez** a 1080×1920, 30 fps, H.264, `yuv420p`, AAC a 48 kHz. Se escala manteniendo la proporción y se rellena con barras (`scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2`). Los clips sin pista de audio necesitan un audio silencioso para que la concatenación no falle. La duración se obtiene con ffprobe.
 2. **Concatenar** los clips normalizados con el demuxer concat (`-f concat -safe 0 -i list.txt -c copy`). Así no se recodifica: el costo de cada variante es casi nulo y lo caro es la normalización. No concatenar nunca los originales sin normalizar.
-3. Nombres de salida trazables y guardados en la base de datos, p. ej. `<proyecto-slug>_h02_b04_c01.mp4`.
+3. Nombres de salida trazables y guardados en la base de datos, p. ej. `<lote-slug>_ga02_co04_ci01.mp4` o `<lote-slug>_ga02_co04.mp4` sin cierre.

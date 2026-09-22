@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_rq",
+    "accounts",
     "combinator",
 ]
 
@@ -87,6 +88,8 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+AUTH_USER_MODEL = "accounts.User"
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "combinator:project_list"

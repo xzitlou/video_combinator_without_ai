@@ -9,10 +9,9 @@
     {% csrf_token %}
     {% for field in form %}
     <label class="field {% if field.errors %}has-error{% endif %}">
-      <span>{% if field.name == 'username' %}Usuario{% elif field.name == 'email' %}Email{% elif field.name == 'password1' %}Contraseña{% else %}Repite la contraseña{% endif %}</span>
-      <input type="{{ field.field.widget.input_type }}" name="{{ field.html_name }}" value="{{ field.value|default:'' }}"
-             autocomplete="{% if 'password' in field.name %}new-password{% else %}{{ field.name }}{% endif %}"
-             {% if forloop.first %}autofocus{% endif %} {% if field.field.required %}required{% endif %}>
+      <span>{% if field.name == 'email' %}Correo{% elif field.name == 'password1' %}Contraseña{% else %}Repite la contraseña{% endif %}</span>
+      <input type="{% if field.name == 'email' %}email{% else %}password{% endif %}" name="{{ field.html_name }}"
+             {% if field.name == 'email' %}value="{{ field.value|default:'' }}" autocomplete="email" autofocus{% else %}autocomplete="new-password"{% endif %} required>
       {% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
     </label>
     {% endfor %}

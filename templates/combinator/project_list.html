@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Mis campañas · Variantes{% endblock %}
+{% block title %}Mis lotes · Variantes{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>Mis campañas</h1>
+  <h1>Mis lotes</h1>
   <form method="post" action="{% url 'combinator:project_create' %}" class="inline-form">
     {% csrf_token %}
     {{ form.name }}
-    <button type="submit" class="btn btn-primary">Nueva campaña</button>
+    <button type="submit" class="btn btn-primary">Nuevo lote</button>
   </form>
 </div>
 
@@ -34,8 +34,8 @@
 </ul>
 {% else %}
 <section class="empty">
-  <p class="empty-formula"><b class="hook">2</b> × <b class="body">3</b> × <b class="closer">2</b> = 12 videos</p>
-  <p>Crea una campaña, sube unos cuantos hooks, bodies y closers y obtén cada combinación posible como un MP4 vertical listo para publicar.</p>
+  <p class="empty-formula"><b class="hook">4</b> × <b class="body">5</b> × <b class="closer">3</b> = 60 videos</p>
+  <p>Crea un lote, sube tus ganchos, contenidos y, si quieres, cierres. Te devolvemos cada combinación posible como un MP4 vertical listo para publicar.</p>
 </section>
 {% endif %}
 {% endblock %}

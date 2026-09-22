@@ -1,6 +1,6 @@
 from unittest import mock
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
@@ -11,8 +11,8 @@ from combinator.models import Clip, Project
 
 class ViewTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user("lou", password="secret-pass-123")
-        self.other = User.objects.create_user("ana", password="secret-pass-123")
+        self.user = get_user_model().objects.create_user("lou@example.com", password="secret-pass-123")
+        self.other = get_user_model().objects.create_user("ana@example.com", password="secret-pass-123")
         self.project = Project.objects.create(name="Mía", owner=self.user)
         self.client.force_login(self.user)
 
@@ -21,6 +21,27 @@ class ViewTests(TestCase):
         response = self.client.get(reverse("combinator:project_detail", args=[self.project.pk]))
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response.url)
+
+    def test_login_with_email_is_case_insensitive(self):
+        self.client.logout()
+        response = self.client.post(reverse("login"), {"username": "LOU@Example.com", "password": "secret-pass-123"})
+        self.assertRedirects(response, reverse("combinator:project_list"))
+
+    def test_signup_with_email(self):
+        self.client.logout()
+        response = self.client.post(
+            reverse("signup"),
+            {"email": "Nueva@Example.com", "password1": "otra-clave-larga-9", "password2": "otra-clave-larga-9"},
+        )
+        self.assertRedirects(response, reverse("combinator:project_list"))
+        self.assertTrue(get_user_model().objects.filter(email="nueva@example.com").exists())
+
+        self.client.logout()
+        dup = self.client.post(
+            reverse("signup"),
+            {"email": "NUEVA@example.com", "password1": "otra-clave-larga-9", "password2": "otra-clave-larga-9"},
+        )
+        self.assertContains(dup, "Ya existe una cuenta con este correo.")
 
     def test_other_users_projects_are_hidden(self):
         theirs = Project.objects.create(name="Ajena", owner=self.other)
@@ -31,7 +52,9 @@ class ViewTests(TestCase):
         response = self.client.post(reverse("combinator:project_create"), {"name": "Otoño"})
         project = Project.objects.get(name="Otoño")
         self.assertRedirects(response, reverse("combinator:project_detail", args=[project.pk]))
-        self.assertContains(self.client.get(response.url), "Generar videos")
+        page = self.client.get(response.url)
+        self.assertContains(page, "Ganchos")
+        self.assertContains(page, "Los primeros 3 a 5 segundos")
 
     def test_upload_rejects_unknown_formats(self):
         response = self.client.post(
@@ -49,7 +72,7 @@ class ViewTests(TestCase):
             )
         self.assertEqual(response.status_code, 201, response.content)
         clip = Clip.objects.get()
-        self.assertEqual(response.json()["code"], "B01")
+        self.assertEqual(response.json()["code"], "CO01")
         self.assertEqual(clip.original_name, "take 3.MOV")
         enqueue.assert_called_once()
 

@@ -2,7 +2,6 @@ import zipfile
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.http import (
     FileResponse,
@@ -16,22 +15,32 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import services
-from .forms import ProjectForm, SignupForm
+from .forms import ProjectForm
 from .models import Clip, Project, Variant
 
 ACCEPTED_EXTENSIONS = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi")
 
-
-# --- Auth ----------------------------------------------------------------------
-
-def signup(request):
-    if request.user.is_authenticated:
-        return redirect("combinator:project_list")
-    form = SignupForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        login(request, form.save())
-        return redirect("combinator:project_list")
-    return render(request, "registration/signup.html", {"form": form})
+COLUMNS = [
+    {
+        "type": Clip.Type.HOOK,
+        "label": "Ganchos",
+        "add": "Añadir ganchos",
+        "help": "Los primeros 3 a 5 segundos. Su trabajo es frenar el scroll.",
+    },
+    {
+        "type": Clip.Type.BODY,
+        "label": "Contenido",
+        "add": "Añadir contenido",
+        "help": "El cuerpo del video. Mantiene la atención y puede durar más.",
+    },
+    {
+        "type": Clip.Type.CLOSER,
+        "label": "Cierres",
+        "add": "Añadir cierres",
+        "help": "Clip corto que pide una acción: seguir, comentar, comprar. Opcional.",
+        "optional": True,
+    },
+]
 
 
 # --- Projects ------------------------------------------------------------------
@@ -57,7 +66,7 @@ def project_list(request):
 def project_create(request):
     form = ProjectForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Ponle un nombre a la campaña.")
+        messages.error(request, "Ponle un nombre al lote.")
         return redirect("combinator:project_list")
     project = form.save(commit=False)
     project.owner = request.user
@@ -70,12 +79,8 @@ def project_detail(request, pk):
     project = _project(request, pk)
     clips = list(project.clips.all())
     columns = [
-        {"type": t, "label": label, "clips": [c for c in clips if c.type == t]}
-        for t, label in (
-            (Clip.Type.HOOK, "Hooks"),
-            (Clip.Type.BODY, "Bodies"),
-            (Clip.Type.CLOSER, "Closers"),
-        )
+        {**column, "clips": [c for c in clips if c.type == column["type"]]}
+        for column in COLUMNS
     ]
     variants = list(project.variants.select_related("hook", "body", "closer"))
     now = timezone.now()

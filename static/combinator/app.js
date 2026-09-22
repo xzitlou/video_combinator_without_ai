@@ -9,7 +9,7 @@
   const maxClipBytes = Number(app.dataset.maxClipMb) * 1024 * 1024;
   const isDraft = app.dataset.projectStatus === "draft";
   const TYPES = ["hook", "body", "closer"];
-  const LABELS = { hook: "H", body: "B", closer: "C" };
+  const LABELS = { hook: "GA", body: "CO", closer: "CI" };
 
   const post = (url, data) =>
     fetch(url, { method: "POST", body: data, headers: { "X-CSRFToken": csrf } }).then((r) =>
@@ -45,7 +45,9 @@
       document.querySelector(`[data-n="${type}"]`).textContent = counts[type];
       document.querySelector(`[data-count-for="${type}"]`).textContent = rows.length;
     });
-    const total = counts.hook * counts.body * counts.closer;
+    // Closers are optional: with none enabled each video is hook + body.
+    const total = counts.hook * counts.body * Math.max(counts.closer, 1);
+    document.querySelectorAll("[data-closer-term]").forEach((el) => el.classList.toggle("term-off", counts.closer === 0));
     document.getElementById("count").textContent = total;
     document.getElementById("count-label").textContent = total === 1 ? "video" : "videos";
 
@@ -53,14 +55,16 @@
     const note = document.getElementById("panel-note");
     note.classList.remove("over");
     if (total === 0) {
-      note.textContent = "Sube al menos un clip de cada tipo.";
+      note.textContent = "Sube al menos un gancho y un contenido.";
     } else if (total > maxVariants) {
-      note.textContent = `Son demasiados: el máximo es ${maxVariants}. Desactiva algunos clips.`;
+      note.textContent = `Son demasiados: el máximo es ${maxVariants}. Desmarca algunos clips.`;
       note.classList.add("over");
     } else if (!allReady) {
       note.textContent = "Preparando los clips…";
     } else {
-      note.textContent = "Cada video es un hook, un body y un closer, unidos en ese orden.";
+      note.textContent = counts.closer
+        ? "Cada video une un gancho, un contenido y un cierre, en ese orden."
+        : "Sin cierres, cada video une un gancho y un contenido.";
     }
     button.disabled = total === 0 || total > maxVariants || !allReady;
     button.textContent = total > 0 ? `Generar ${total} video${total === 1 ? "" : "s"}` : "Generar videos";
@@ -94,7 +98,7 @@
     const list = document.querySelector(`[data-list="${type}"]`);
     const row = document.getElementById("clip-template").content.firstElementChild.cloneNode(true);
     row.classList.add("clip-uploading");
-    row.querySelector(".clip-code").textContent = LABELS[type] + "··";
+    row.querySelector(".clip-code").textContent = LABELS[type];
     row.querySelector(".clip-name").textContent = file.name;
     row.querySelector(".clip-toggle").disabled = true;
     row.querySelector(".clip-remove").hidden = true;

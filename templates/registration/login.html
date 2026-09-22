@@ -4,13 +4,13 @@
 {% block content %}
 <section class="auth-card">
   <h1>Entrar</h1>
-  <p class="lead">Sube tus hooks, bodies y closers y descarga todas las combinaciones listas para TikTok.</p>
-  {% if form.non_field_errors %}<p class="field-error">Usuario o contraseña incorrectos.</p>{% endif %}
+  <p class="lead">Sube ganchos, contenidos y cierres. Descarga cada combinación lista para TikTok.</p>
+  {% if form.non_field_errors %}<p class="field-error">{{ form.non_field_errors.0 }}</p>{% endif %}
   <form method="post" class="stack">
     {% csrf_token %}
     <label class="field">
-      <span>Usuario</span>
-      <input type="text" name="username" autocomplete="username" autofocus required value="{{ form.username.value|default:'' }}">
+      <span>Correo</span>
+      <input type="email" name="username" autocomplete="email" autofocus required value="{{ form.username.value|default:'' }}">
     </label>
     <label class="field">
       <span>Contraseña</span>
