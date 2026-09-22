@@ -7,5 +7,5 @@ class ProjectForm(forms.ModelForm):
     class Meta:
         model = Project
         fields = ("name",)
-        labels = {"name": "Nombre del lote"}
-        widgets = {"name": forms.TextInput(attrs={"placeholder": "Nombre del lote, p. ej. Septiembre", "autofocus": True})}
+        labels = {"name": "Nombre del proyecto"}
+        widgets = {"name": forms.TextInput(attrs={"placeholder": "Ej. Lanzamiento de septiembre", "autocomplete": "off"})}

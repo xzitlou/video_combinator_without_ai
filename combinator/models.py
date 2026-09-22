@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -10,6 +12,8 @@ class Project(models.Model):
         PROCESSING = "processing", "Procesando"
         DONE = "done", "Terminado"
 
+    # Public identifier used in URLs and JSON; the integer pk never leaves the server.
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="projects")
     name = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
@@ -51,6 +55,7 @@ class Clip(models.Model):
         READY = "ready", "Listo"
         FAILED = "failed", "Error"
 
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="clips")
     type = models.CharField(max_length=10, choices=Type.choices)
     original_name = models.CharField(max_length=255)
@@ -96,6 +101,7 @@ class Variant(models.Model):
 
     FINISHED_STATUSES = (Status.DONE, Status.FAILED, Status.EXPIRED)
 
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="variants")
     # Clip rows are kept after their files are purged, so variants stay traceable
     # (needed later to aggregate performance per hook/body/closer).

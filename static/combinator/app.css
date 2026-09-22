@@ -132,22 +132,35 @@ body.auth .page { max-width: 420px; padding-top: 64px; }
 .clips { list-style: none; margin: 0; padding: 0 8px; }
 .clip {
   position: relative;
-  display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 10px; align-items: center;
-  padding: 8px; border-radius: var(--radius); font-size: 14px;
+  display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px; align-items: center;
+  padding: 6px 8px; border-radius: var(--radius); font-size: 14px;
 }
+.clip-thumb {
+  display: block; width: 27px; height: 48px; padding: 0; border: 0; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, var(--col) 18%, var(--bg));
+}
+.clip-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.clip-thumb img:not([src]) { visibility: hidden; }
+button.clip-thumb { cursor: zoom-in; }
+button.clip-thumb:hover { outline: 2px solid var(--col); outline-offset: 1px; }
+.clip-local .clip-code { color: var(--muted); font-weight: 500; }
+.clip-upload-error .clip-info { color: var(--danger); }
+.is-uploading .clip-toggle, .is-uploading .clip-remove, .is-uploading .dropzone { pointer-events: none; opacity: .4; }
 .clip:hover { background: #f4f5f7; }
 .clip-off .clip-name, .clip-off .clip-info, .clip-off .clip-code { color: var(--muted); text-decoration: line-through; }
 .clip-off .clip-code { color: var(--muted); }
-.board-locked .clip { grid-template-columns: auto 1fr auto; }
+.board-locked .clip { grid-template-columns: auto 1fr; }
 .clip-toggle { width: 16px; height: 16px; margin: 0; accent-color: var(--col); cursor: pointer; }
-.clip-code { font-family: var(--display); font-weight: 600; color: var(--col); font-size: 13px; width: 38px; }
-.clip-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.3; }
+.clip-code { font-family: var(--display); font-weight: 600; color: var(--col); font-size: 13px; flex: none; }
+.clip-text { display: grid; gap: 2px; min-width: 0; }
+.clip-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .clip-info { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .clip-failed .clip-info { color: var(--danger); }
 .clip-remove { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 4px; cursor: pointer; opacity: 0; }
 .clip:hover .clip-remove, .clip-remove:focus-visible { opacity: 1; }
 .clip-remove:hover { color: var(--danger); }
-.clip-progress { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.clip-progress { grid-column: 3 / 4; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .clip-progress i { display: block; height: 100%; width: 0; background: var(--col); transition: width .2s; }
 .clip-uploading .clip-progress { display: block; }
 .clip:not(.clip-uploading) .clip-progress { display: none; }
@@ -178,7 +191,27 @@ body.auth .page { max-width: 420px; padding-top: 64px; }
 .panel-note { margin-top: 12px; font-size: 14px; color: var(--muted); }
 .panel-note.over { color: var(--danger); }
 .panel-fine { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.4; }
-.panel-progress { color: var(--muted); font-size: 14px; margin: -8px 0 16px; }
+.panel-progress { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+
+.progress { margin: 4px 0 16px; }
+.progress-head { display: flex; justify-content: space-between; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+.progress-head [data-progress-count] { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.progress-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.progress-bar i { display: block; height: 100%; width: 0; background: var(--ink); transition: width .3s; }
+.progress small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#generate + .panel-note + .progress { margin-top: 16px; }
+
+/* --- Modals ------------------------------------------------------------- */
+.modal { border: 0; border-radius: 12px; padding: 24px; width: min(420px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(21, 23, 27, .25); color: var(--ink); }
+.modal::backdrop { background: rgba(21, 23, 27, .45); }
+.modal h2 { font-size: 22px; }
+.modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; }
+.modal-video { width: auto; padding: 12px; background: var(--ink); }
+.modal-video video { display: block; max-height: min(78vh, 720px); max-width: calc(100vw - 56px); border-radius: 6px; background: #000; }
+.modal-video .modal-caption { flex: 1; color: #c9ccd2; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal-video .btn { background: transparent; color: #fff; border-color: #50545c; }
+.empty-cta { margin-top: 20px; }
+@media (prefers-reduced-motion: reduce) { .progress-bar i { transition: none; } }
 
 /* --- Variants ----------------------------------------------------------- */
 .variants { margin-top: 32px; }

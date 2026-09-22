@@ -18,7 +18,7 @@ class ViewTests(TestCase):
 
     def test_anonymous_is_redirected_to_login(self):
         self.client.logout()
-        response = self.client.get(reverse("combinator:project_detail", args=[self.project.pk]))
+        response = self.client.get(reverse("combinator:project_detail", args=[self.project.uuid]))
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response.url)
 
@@ -45,20 +45,20 @@ class ViewTests(TestCase):
 
     def test_other_users_projects_are_hidden(self):
         theirs = Project.objects.create(name="Ajena", owner=self.other)
-        self.assertEqual(self.client.get(reverse("combinator:project_detail", args=[theirs.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("combinator:project_detail", args=[theirs.uuid])).status_code, 404)
         self.assertNotContains(self.client.get(reverse("combinator:project_list")), "Ajena")
 
     def test_create_and_open_project(self):
         response = self.client.post(reverse("combinator:project_create"), {"name": "Otoño"})
         project = Project.objects.get(name="Otoño")
-        self.assertRedirects(response, reverse("combinator:project_detail", args=[project.pk]))
+        self.assertRedirects(response, reverse("combinator:project_detail", args=[project.uuid]))
         page = self.client.get(response.url)
         self.assertContains(page, "Ganchos")
         self.assertContains(page, "Los primeros 3 a 5 segundos")
 
     def test_upload_rejects_unknown_formats(self):
         response = self.client.post(
-            reverse("combinator:clip_upload", args=[self.project.pk]),
+            reverse("combinator:clip_upload", args=[self.project.uuid]),
             {"type": "hook", "file": SimpleUploadedFile("notes.txt", b"hi")},
         )
         self.assertEqual(response.status_code, 400)
@@ -67,7 +67,7 @@ class ViewTests(TestCase):
     def test_upload_creates_clip_and_queues_it(self):
         with mock.patch.object(services, "enqueue") as enqueue, self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
-                reverse("combinator:clip_upload", args=[self.project.pk]),
+                reverse("combinator:clip_upload", args=[self.project.uuid]),
                 {"type": "body", "file": SimpleUploadedFile("take 3.MOV", b"\x00" * 10)},
             )
         self.assertEqual(response.status_code, 201, response.content)
@@ -78,17 +78,38 @@ class ViewTests(TestCase):
 
     def test_toggle_and_delete_only_while_draft(self):
         clip = Clip.objects.create(project=self.project, type="hook", order=1, original_name="h.mp4", status="ready")
-        self.assertEqual(self.client.post(reverse("combinator:clip_toggle", args=[clip.pk]), {"enabled": "0"}).status_code, 200)
+        self.assertEqual(self.client.post(reverse("combinator:clip_toggle", args=[clip.uuid]), {"enabled": "0"}).status_code, 200)
         clip.refresh_from_db()
         self.assertFalse(clip.enabled)
 
         Project.objects.filter(pk=self.project.pk).update(status=Project.Status.DONE)
-        self.assertEqual(self.client.post(reverse("combinator:clip_delete", args=[clip.pk])).status_code, 409)
+        self.assertEqual(self.client.post(reverse("combinator:clip_delete", args=[clip.uuid])).status_code, 409)
         self.assertTrue(Clip.objects.filter(pk=clip.pk).exists())
+
+    def test_urls_use_uuids_not_ids(self):
+        page = self.client.get(reverse("combinator:project_list")).content.decode()
+        self.assertIn(str(self.project.uuid), page)
+        self.assertNotIn(f"/projects/{self.project.pk}/", page)
+        self.assertEqual(self.client.get(f"/projects/{self.project.pk}/").status_code, 404)
+
+    def test_generate_returns_json_for_the_upload_flow(self):
+        for t in ("hook", "body"):
+            Clip.objects.create(project=self.project, type=t, order=1, original_name=f"{t}.mp4")
+        with mock.patch.object(services, "enqueue"):
+            response = self.client.post(
+                reverse("combinator:project_generate", args=[self.project.uuid]), HTTP_ACCEPT="application/json"
+            )
+        self.assertEqual(response.json(), {"redirect": reverse("combinator:project_detail", args=[self.project.uuid])})
+
+        again = self.client.post(
+            reverse("combinator:project_generate", args=[self.project.uuid]), HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(again.status_code, 409)
+        self.assertIn("error", again.json())
 
     def test_status_endpoint(self):
         Clip.objects.create(project=self.project, type="hook", order=1, original_name="h.mp4")
-        data = self.client.get(reverse("combinator:project_status", args=[self.project.pk])).json()
+        data = self.client.get(reverse("combinator:project_status", args=[self.project.uuid])).json()
         self.assertTrue(data["busy"])
         self.assertEqual(data["clips"][0]["status"], "pending")
 
@@ -113,7 +134,7 @@ class ViewTests(TestCase):
             variant.output_file.save("v.mp4", SimpleUploadedFile("v.mp4", b"video-bytes"), save=False)
             services.mark_variant_done(variant)
 
-            response = self.client.get(reverse("combinator:download_all", args=[self.project.pk]))
+            response = self.client.get(reverse("combinator:download_all", args=[self.project.uuid]))
             self.assertEqual(response.status_code, 200)
             archive = zipfile.ZipFile(io.BytesIO(b"".join(response.streaming_content)))
             self.assertEqual(archive.namelist(), [variant.output_name])

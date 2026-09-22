@@ -25,7 +25,7 @@ def normalize_clip(clip_id):
     except Exception as exc:
         clip.status = Clip.Status.FAILED
         clip.error = str(exc)
-        clip.save(update_fields=["status", "error"])
+        services.clip_normalized(clip)
         if isinstance(exc, ffmpeg.FFmpegError):
             return  # bad input file: reported to the user, not a job failure
         raise
@@ -34,15 +34,13 @@ def normalize_clip(clip_id):
     clip.file.delete(save=False)
     clip.status = Clip.Status.READY
     clip.error = ""
-    clip.save(update_fields=["file", "normalized_file", "duration", "status", "error"])
+    services.clip_normalized(clip)
 
 
 def render_variant(variant_id):
+    if not services.claim_variant(variant_id):
+        return  # already rendered or being rendered by another job
     variant = Variant.objects.select_related("project", "hook", "body", "closer").get(pk=variant_id)
-    if variant.status != Variant.Status.PENDING:
-        return
-    variant.status = Variant.Status.PROCESSING
-    variant.save(update_fields=["status"])
 
     try:
         with tempfile.TemporaryDirectory() as tmp:

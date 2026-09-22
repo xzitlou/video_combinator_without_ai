@@ -3,12 +3,7 @@ import zipfile
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import (
-    FileResponse,
-    Http404,
-    JsonResponse,
-    StreamingHttpResponse,
-)
+from django.http import FileResponse, Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -43,10 +38,14 @@ COLUMNS = [
 ]
 
 
+def _wants_json(request):
+    return "application/json" in request.headers.get("Accept", "")
+
+
 # --- Projects ------------------------------------------------------------------
 
-def _project(request, pk, **filters):
-    return get_object_or_404(Project, pk=pk, owner=request.user, **filters)
+def _project(request, uuid):
+    return get_object_or_404(Project, uuid=uuid, owner=request.user)
 
 
 @login_required
@@ -66,34 +65,32 @@ def project_list(request):
 def project_create(request):
     form = ProjectForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Ponle un nombre al lote.")
+        messages.error(request, "Ponle un nombre al proyecto.")
         return redirect("combinator:project_list")
     project = form.save(commit=False)
     project.owner = request.user
     project.save()
-    return redirect("combinator:project_detail", pk=project.pk)
+    return redirect("combinator:project_detail", uuid=project.uuid)
 
 
 @login_required
-def project_detail(request, pk):
-    project = _project(request, pk)
+def project_detail(request, uuid):
+    project = _project(request, uuid)
     clips = list(project.clips.all())
-    columns = [
-        {**column, "clips": [c for c in clips if c.type == column["type"]]}
-        for column in COLUMNS
-    ]
+    columns = [{**column, "clips": [c for c in clips if c.type == column["type"]]} for column in COLUMNS]
     variants = list(project.variants.select_related("hook", "body", "closer"))
     now = timezone.now()
     for variant in variants:
         variant.total_duration = sum(c.duration or 0 for c in variant.clips)
         variant.minutes_left = int((variant.expires_at - now).total_seconds() // 60) if variant.is_downloadable else 0
-    max_duration = max((v.total_duration for v in variants), default=0)
     return render(request, "combinator/project_detail.html", {
         "project": project,
         "columns": columns,
         "variants": variants,
-        "max_duration": max_duration,
+        "max_duration": max((v.total_duration for v in variants), default=0),
         "ready_total": sum(1 for v in variants if v.is_downloadable),
+        "clips_ready": sum(1 for c in clips if c.is_ready),
+        "clips_used": sum(1 for c in clips if c.enabled),
         "count": services.variant_count(project),
         "max_variants": settings.MAX_VARIANTS_PER_RUN,
         "max_clip_mb": settings.MAX_CLIP_SIZE // (1024 * 1024),
@@ -104,18 +101,23 @@ def project_detail(request, pk):
 
 @login_required
 @require_POST
-def project_generate(request, pk):
-    project = _project(request, pk)
+def project_generate(request, uuid):
+    project = _project(request, uuid)
     try:
         services.generate_variants(project.pk)
     except services.GenerationError as exc:
+        if _wants_json(request):
+            return JsonResponse({"error": str(exc)}, status=409)
         messages.error(request, str(exc))
-    return redirect("combinator:project_detail", pk=pk)
+    url = reverse("combinator:project_detail", args=[project.uuid])
+    if _wants_json(request):
+        return JsonResponse({"redirect": url})
+    return redirect(url)
 
 
 def _clip_json(clip):
     return {
-        "id": clip.pk,
+        "uuid": str(clip.uuid),
         "type": clip.type,
         "code": clip.code,
         "name": clip.original_name,
@@ -123,27 +125,31 @@ def _clip_json(clip):
         "duration": clip.duration,
         "enabled": clip.enabled,
         "error": clip.error,
+        "toggle_url": reverse("combinator:clip_toggle", args=[clip.uuid]),
+        "delete_url": reverse("combinator:clip_delete", args=[clip.uuid]),
     }
 
 
 def _variant_json(variant, now):
     downloadable = variant.is_downloadable
     return {
-        "id": variant.pk,
+        "uuid": str(variant.uuid),
         "status": variant.status,
         "error": variant.error,
-        "download_url": reverse("combinator:download_variant", args=[variant.pk]) if downloadable else None,
+        "download_url": reverse("combinator:download_variant", args=[variant.uuid]) if downloadable else None,
         "seconds_left": int((variant.expires_at - now).total_seconds()) if downloadable else None,
+        # Durations are only known once clips are normalized; the page redraws its strips from these.
+        "segments": [clip.duration or 0 for clip in variant.clips],
     }
 
 
 @login_required
-def project_status(request, pk):
+def project_status(request, uuid):
     """Polled by the project page while clips normalize or variants render."""
-    project = _project(request, pk)
+    project = _project(request, uuid)
     now = timezone.now()
     clips = list(project.clips.all())
-    variants = list(project.variants.all())
+    variants = list(project.variants.select_related("hook", "body", "closer"))
     return JsonResponse({
         "status": project.status,
         "count": services.variant_count(project),
@@ -158,8 +164,8 @@ def project_status(request, pk):
 
 @login_required
 @require_POST
-def clip_upload(request, pk):
-    project = _project(request, pk)
+def clip_upload(request, uuid):
+    project = _project(request, uuid)
     clip_type = request.POST.get("type")
     upload = request.FILES.get("file")
     if clip_type not in Clip.Type.values or upload is None:
@@ -176,14 +182,14 @@ def clip_upload(request, pk):
     return JsonResponse(_clip_json(clip), status=201)
 
 
-def _clip(request, pk):
-    return get_object_or_404(Clip.objects.select_related("project"), pk=pk, project__owner=request.user)
+def _clip(request, uuid):
+    return get_object_or_404(Clip.objects.select_related("project"), uuid=uuid, project__owner=request.user)
 
 
 @login_required
 @require_POST
-def clip_toggle(request, pk):
-    clip = _clip(request, pk)
+def clip_toggle(request, uuid):
+    clip = _clip(request, uuid)
     try:
         services.set_clip_enabled(clip, request.POST.get("enabled") == "1")
     except services.GenerationError as exc:
@@ -193,8 +199,8 @@ def clip_toggle(request, pk):
 
 @login_required
 @require_POST
-def clip_delete(request, pk):
-    clip = _clip(request, pk)
+def clip_delete(request, uuid):
+    clip = _clip(request, uuid)
     project = clip.project
     try:
         services.delete_clip(clip)
@@ -206,10 +212,10 @@ def clip_delete(request, pk):
 # --- Downloads -----------------------------------------------------------------
 
 @login_required
-def download_variant(request, pk):
+def download_variant(request, uuid):
     """Only path to a rendered file; refuses once the download window has closed."""
     variant = get_object_or_404(
-        Variant.objects.select_related("project", "hook", "body", "closer"), pk=pk, project__owner=request.user
+        Variant.objects.select_related("project", "hook", "body", "closer"), uuid=uuid, project__owner=request.user
     )
     if not variant.is_downloadable:
         raise Http404("Este video ya no está disponible.")
@@ -249,13 +255,13 @@ def _zip_variants(variants):
 
 
 @login_required
-def download_all(request, pk):
-    project = _project(request, pk)
+def download_all(request, uuid):
+    project = _project(request, uuid)
     variants = [
         v for v in project.variants.select_related("project", "hook", "body", "closer") if v.is_downloadable
     ]
     if not variants:
         raise Http404("No hay videos disponibles para descargar.")
     response = StreamingHttpResponse(_zip_variants(variants), content_type="application/zip")
-    response["Content-Disposition"] = f'attachment; filename="{project.slug}_variantes.zip"'
+    response["Content-Disposition"] = f'attachment; filename="{project.slug}_videos.zip"'
     return response

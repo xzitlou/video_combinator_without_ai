@@ -70,6 +70,37 @@ class GenerationRulesTests(MediaTestCase):
         project.refresh_from_db()
         self.assertEqual(project.status, Project.Status.PROCESSING)
 
+    def test_variants_wait_for_their_clips(self):
+        """Generation starts right after upload; each render is queued once its clips are ready."""
+        project = Project.objects.create(name="x", owner=self.user)
+        hook = self.ready_clip(project, Clip.Type.HOOK, 1)
+        body1 = Clip.objects.create(project=project, type=Clip.Type.BODY, order=1, original_name="b1.mp4")
+        body2 = Clip.objects.create(project=project, type=Clip.Type.BODY, order=2, original_name="b2.mp4")
+
+        with mock.patch("combinator.tasks.render_variant") as render, self.captureOnCommitCallbacks(execute=True):
+            services.generate_variants(project.pk)
+        render.assert_not_called()
+
+        body1.status = Clip.Status.READY
+        with mock.patch("combinator.tasks.render_variant") as render, self.captureOnCommitCallbacks(execute=True):
+            services.clip_normalized(body1)
+        render.assert_called_once_with(Variant.objects.get(body=body1).pk)
+
+        body2.status = Clip.Status.FAILED
+        with self.captureOnCommitCallbacks(execute=True):
+            services.clip_normalized(body2)
+        failed = Variant.objects.get(body=body2)
+        self.assertEqual(failed.status, Variant.Status.FAILED)
+        self.assertIn("CO02", failed.error)
+        self.assertEqual(hook.pk, failed.hook_id)
+
+    def test_a_variant_is_rendered_once(self):
+        project = Project.objects.create(name="x", owner=self.user)
+        clips = [self.ready_clip(project, t, 1) for t in (Clip.Type.HOOK, Clip.Type.BODY)]
+        variant = Variant.objects.create(project=project, hook=clips[0], body=clips[1])
+        self.assertTrue(services.claim_variant(variant.pk))
+        self.assertFalse(services.claim_variant(variant.pk))
+
     @override_settings(MAX_VARIANTS_PER_RUN=4)
     def test_limit_is_enforced(self):
         project = Project.objects.create(name="x", owner=self.user)
@@ -120,7 +151,7 @@ class GenerationRulesTests(MediaTestCase):
         variant.output_file.save("out.mp4", SimpleUploadedFile("out.mp4", b"data"), save=False)
         services.mark_variant_done(variant)
 
-        url = reverse("combinator:download_variant", args=[variant.pk])
+        url = reverse("combinator:download_variant", args=[variant.uuid])
         self.assertEqual(self.client.get(url).status_code, 200)
 
         later = timezone.now() + timedelta(hours=1, seconds=1)

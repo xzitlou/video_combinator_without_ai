@@ -6,7 +6,7 @@ from itertools import product
 import django_rq
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from .models import Clip, Project, Variant
@@ -26,7 +26,7 @@ def add_clip(project, clip_type, uploaded_file):
     with transaction.atomic():
         project = Project.objects.select_for_update().get(pk=project.pk)
         if project.status != Project.Status.DRAFT:
-            raise GenerationError("Este lote ya fue generado; crea uno nuevo para añadir clips.")
+            raise GenerationError("Este proyecto ya fue generado; crea uno nuevo para añadir clips.")
         last = project.clips.filter(type=clip_type).aggregate(m=Max("order"))["m"] or 0
         clip = Clip.objects.create(
             project=project, type=clip_type, original_name=uploaded_file.name, order=last + 1
@@ -45,14 +45,14 @@ def _ext(name):
 
 def set_clip_enabled(clip, enabled):
     if clip.project.status != Project.Status.DRAFT:
-        raise GenerationError("Este lote ya fue generado.")
+        raise GenerationError("Este proyecto ya fue generado.")
     clip.enabled = enabled
     clip.save(update_fields=["enabled"])
 
 
 def delete_clip(clip):
     if clip.project.status != Project.Status.DRAFT:
-        raise GenerationError("Este lote ya fue generado.")
+        raise GenerationError("Este proyecto ya fue generado.")
     for field in (clip.file, clip.normalized_file):
         if field:
             field.delete(save=False)
@@ -79,13 +79,15 @@ def variant_count(project):
 
 
 def generate_variants(project_id):
-    """Create one Variant per hook × body (× closer) combination and queue the renders."""
-    from .tasks import render_variant
+    """Create one Variant per hook × body (× closer) combination.
 
+    Clips may still be normalizing: each variant is queued as soon as its clips are ready,
+    here or from normalize_clip (see enqueue_ready_variants).
+    """
     with transaction.atomic():
         project = Project.objects.select_for_update().get(pk=project_id)
         if project.status != Project.Status.DRAFT or project.uploads_purged_at:
-            raise GenerationError("Este lote ya fue generado.")
+            raise GenerationError("Este proyecto ya fue generado.")
 
         hooks, bodies, closers = enabled_clips(project)
         if not hooks or not bodies:
@@ -95,8 +97,9 @@ def generate_variants(project_id):
             raise GenerationError(
                 f"{total} videos superan el máximo de {settings.MAX_VARIANTS_PER_RUN} por ejecución."
             )
-        if any(c.status != Clip.Status.READY for c in hooks + bodies + closers):
-            raise GenerationError("Espera a que todos los clips activos terminen de prepararse.")
+        failed = [c.original_name for c in hooks + bodies + closers if c.status == Clip.Status.FAILED]
+        if failed:
+            raise GenerationError(f"Quita los clips que no se pudieron procesar: {', '.join(failed)}.")
 
         variants = Variant.objects.bulk_create(
             Variant(project=project, hook=h, body=b, closer=c)
@@ -104,10 +107,54 @@ def generate_variants(project_id):
         )
         project.status = Project.Status.PROCESSING
         project.save(update_fields=["status"])
-
-        ids = [v.pk for v in variants]
-        transaction.on_commit(lambda: [enqueue(render_variant, pk) for pk in ids])
+        enqueue_ready_variants(project)
     return variants
+
+
+def enqueue_ready_variants(project):
+    """Queue pending variants whose clips are all normalized.
+
+    Must run inside a transaction holding the project row lock (generate_variants and
+    clip_normalized both take it), so a clip finishing while the variants are being
+    created can't be missed. Enqueuing a variant twice is harmless: render_variant claims
+    it atomically.
+    """
+    from .tasks import render_variant
+
+    not_ready = Clip.objects.filter(project=project).exclude(status=Clip.Status.READY)
+    ids = list(
+        project.variants.filter(status=Variant.Status.PENDING)
+        .exclude(hook__in=not_ready)
+        .exclude(body__in=not_ready)
+        .exclude(closer__in=not_ready)
+        .values_list("pk", flat=True)
+    )
+    transaction.on_commit(lambda: [enqueue(render_variant, pk) for pk in ids])
+
+
+def clip_normalized(clip):
+    """Persist a normalize result and move the project's pipeline forward."""
+    with transaction.atomic():
+        project = Project.objects.select_for_update().get(pk=clip.project_id)
+        clip.save(update_fields=["file", "normalized_file", "duration", "status", "error"])
+        if project.status != Project.Status.PROCESSING:
+            return
+        if clip.status == Clip.Status.READY:
+            enqueue_ready_variants(project)
+            return
+        project.variants.filter(
+            Q(hook=clip) | Q(body=clip) | Q(closer=clip), status=Variant.Status.PENDING
+        ).update(status=Variant.Status.FAILED, error=f"No se pudo procesar el clip {clip.code}.")
+    finalize_project_if_done(project.pk)
+
+
+def claim_variant(variant_id):
+    """Atomically move a variant from pending to processing; False if someone else did."""
+    return bool(
+        Variant.objects.filter(pk=variant_id, status=Variant.Status.PENDING).update(
+            status=Variant.Status.PROCESSING
+        )
+    )
 
 
 def mark_variant_done(variant):

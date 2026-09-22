@@ -1,20 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Mis lotes · Variantes{% endblock %}
+{% load static assets %}
+{% block title %}Mis proyectos · Variantes{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>Mis lotes</h1>
-  <form method="post" action="{% url 'combinator:project_create' %}" class="inline-form">
-    {% csrf_token %}
-    {{ form.name }}
-    <button type="submit" class="btn btn-primary">Nuevo lote</button>
-  </form>
+  <h1>Mis proyectos</h1>
+  <button type="button" class="btn btn-primary" data-open-dialog="new-project">Nuevo proyecto</button>
 </div>
 
 {% if projects %}
 <ul class="project-rows">
   {% for project in projects %}
   <li>
-    <a class="project-row" href="{% url 'combinator:project_detail' project.pk %}">
+    <a class="project-row" href="{% url 'combinator:project_detail' project.uuid %}">
       <span class="project-name">{{ project.name }}</span>
       <span class="project-meta">
         {% if project.status == 'draft' %}
@@ -35,7 +32,24 @@
 {% else %}
 <section class="empty">
   <p class="empty-formula"><b class="hook">4</b> × <b class="body">5</b> × <b class="closer">3</b> = 60 videos</p>
-  <p>Crea un lote, sube tus ganchos, contenidos y, si quieres, cierres. Te devolvemos cada combinación posible como un MP4 vertical listo para publicar.</p>
+  <p>Crea un proyecto, sube tus ganchos, contenidos y, si quieres, cierres. Te devolvemos cada combinación posible como un MP4 vertical listo para publicar.</p>
+  <button type="button" class="btn btn-primary empty-cta" data-open-dialog="new-project">Crear mi primer proyecto</button>
 </section>
 {% endif %}
+
+<dialog class="modal" id="new-project" aria-labelledby="new-project-title">
+  <form method="post" action="{% url 'combinator:project_create' %}" class="stack">
+    {% csrf_token %}
+    <h2 id="new-project-title">Nuevo proyecto</h2>
+    <label class="field">
+      <span>{{ form.name.label }}</span>
+      {{ form.name }}
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn" data-close-dialog>Cancelar</button>
+      <button type="submit" class="btn btn-primary">Crear proyecto</button>
+    </div>
+  </form>
+</dialog>
 {% endblock %}
+{% block scripts %}<script src="{% asset 'combinator/dialogs.js' %}" defer></script>{% endblock %}

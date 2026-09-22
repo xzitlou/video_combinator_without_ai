@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static assets %}<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'combinator/app.css' %}">
+  <link rel="stylesheet" href="{% asset 'combinator/app.css' %}">
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <header class="topbar">
   <a class="wordmark" href="{% url 'combinator:project_list' %}">Variantes</a>
   {% if user.is_authenticated %}
   <nav class="topbar-nav">
-    <a href="{% url 'combinator:project_list' %}">Mis lotes</a>
+    <a href="{% url 'combinator:project_list' %}">Mis proyectos</a>
     <form method="post" action="{% url 'logout' %}">
       {% csrf_token %}
       <button type="submit" class="link">Salir <span class="muted">({{ user.email }})</span></button>
