@@ -2,7 +2,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
 from combinator import services
@@ -118,3 +118,42 @@ class ViewTests(TestCase):
             archive = zipfile.ZipFile(io.BytesIO(b"".join(response.streaming_content)))
             self.assertEqual(archive.namelist(), [variant.output_name])
             self.assertEqual(archive.read(variant.output_name), b"video-bytes")
+
+
+class ParallelUploadTests(TransactionTestCase):
+    """Real transactions and threads: the browser uploads several files at once."""
+
+    def test_parallel_uploads_get_distinct_numbers(self):
+        import shutil
+        import tempfile
+        import threading
+
+        from django.db import connection
+        from django.test import override_settings
+
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        user = get_user_model().objects.create_user("lou@example.com", password="x")
+        project = Project.objects.create(name="Lote", owner=user)
+        barrier = threading.Barrier(6)
+        errors = []
+
+        def upload(i):
+            try:
+                barrier.wait()
+                services.add_clip(project, "hook", SimpleUploadedFile(f"g{i}.mp4", b"x"))
+            except Exception as exc:  # surfaced below
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        with override_settings(MEDIA_ROOT=media), mock.patch.object(services, "enqueue"):
+            threads = [threading.Thread(target=upload, args=(i,)) for i in range(6)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        self.assertEqual(errors, [])
+        codes = sorted(c.code for c in project.clips.all())
+        self.assertEqual(codes, ["GA01", "GA02", "GA03", "GA04", "GA05", "GA06"])

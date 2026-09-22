@@ -64,6 +64,10 @@ class Clip(models.Model):
 
     class Meta:
         ordering = ["type", "order", "pk"]
+        constraints = [
+            # The order is the visible code (GA01) and part of every output file name.
+            models.UniqueConstraint(fields=["project", "type", "order"], name="unique_clip_order"),
+        ]
 
     def __str__(self):
         return f"{self.get_type_display()} {self.order}: {self.original_name}"

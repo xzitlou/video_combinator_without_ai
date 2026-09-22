@@ -21,12 +21,17 @@ def enqueue(func, *args):
 
 
 def add_clip(project, clip_type, uploaded_file):
-    if project.status != Project.Status.DRAFT:
-        raise GenerationError("Este lote ya fue generado; crea uno nuevo para añadir clips.")
-    last = project.clips.filter(type=clip_type).aggregate(m=Max("order"))["m"] or 0
-    clip = Clip(project=project, type=clip_type, original_name=uploaded_file.name, order=last + 1)
-    clip.file.save(f"{clip_type}_{last + 1:02d}{_ext(uploaded_file.name)}", uploaded_file, save=False)
-    clip.save()
+    # Uploads arrive in parallel; lock the project so each clip gets its own number
+    # (GA01, GA02…). The file is written after the lock is released.
+    with transaction.atomic():
+        project = Project.objects.select_for_update().get(pk=project.pk)
+        if project.status != Project.Status.DRAFT:
+            raise GenerationError("Este lote ya fue generado; crea uno nuevo para añadir clips.")
+        last = project.clips.filter(type=clip_type).aggregate(m=Max("order"))["m"] or 0
+        clip = Clip.objects.create(
+            project=project, type=clip_type, original_name=uploaded_file.name, order=last + 1
+        )
+    clip.file.save(f"{clip_type}_{clip.order:02d}{_ext(uploaded_file.name)}", uploaded_file)
 
     from .tasks import normalize_clip
 
