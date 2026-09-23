@@ -254,7 +254,8 @@ button.clip-thumb:hover { outline: 2px solid var(--col); outline-offset: 1px; }
 .modes[hidden] { display: none; }
 .formula .term-rotate b { opacity: .45; }
 
-.variant-state { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+/* Always the last column, even when the similarity label before it is hidden. */
+.variant-state { grid-column: -2 / -1; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .variant-state small { color: var(--muted); font-variant-numeric: tabular-nums; }
 .variant-expired .variant-label, .variant-failed .variant-label { color: var(--muted); }
 .variant-expired .strip, .variant-failed .strip { opacity: .35; }
@@ -283,7 +284,7 @@ button.clip-thumb:hover { outline: 2px solid var(--col); outline-offset: 1px; }
   .variant { grid-template-columns: auto 1fr auto; row-gap: 8px; }
   .strip { grid-column: 1 / -1; width: 100%; }
   .similarity { grid-column: 1 / -1; }
-  .variant-state { grid-column: 1 / -1; justify-content: flex-start; }
+  .variant-state { grid-column: 1 / -1; justify-content: flex-end; }
   .inline-form { flex-direction: column; }
   .clip-remove { opacity: 1; }
 }
