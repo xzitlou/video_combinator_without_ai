@@ -174,7 +174,7 @@ class ParallelUploadTests(TransactionTestCase):
         def upload(i):
             try:
                 barrier.wait()
-                services.add_clip(project, "hook", SimpleUploadedFile(f"g{i}.mp4", b"x"))
+                services.add_clip(project, "hook", SimpleUploadedFile(f"g{i}.mp4", f"take {i}".encode()))
             except Exception as exc:  # surfaced below
                 errors.append(exc)
             finally:
@@ -190,3 +190,44 @@ class ParallelUploadTests(TransactionTestCase):
         self.assertEqual(errors, [])
         codes = sorted(c.code for c in project.clips.all())
         self.assertEqual(codes, ["GA01", "GA02", "GA03", "GA04", "GA05", "GA06"])
+
+
+class DuplicateFootageTests(TestCase):
+    def setUp(self):
+        import shutil
+        import tempfile
+
+        from django.test import override_settings
+
+        self.user = get_user_model().objects.create_user("lou@example.com", password="x")
+        self.project = Project.objects.create(name="Lote", owner=self.user)
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        override = override_settings(MEDIA_ROOT=media)
+        override.enable()
+        self.addCleanup(override.disable)
+        patcher = mock.patch.object(services, "enqueue")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_same_file_twice_is_rejected(self):
+        services.add_clip(self.project, "body", SimpleUploadedFile("cuerpo1.mp4", b"same bytes"))
+        with self.assertRaisesMessage(services.GenerationError, "cuerpo4.mp4 es el mismo video que CO01"):
+            services.add_clip(self.project, "body", SimpleUploadedFile("cuerpo4.mp4", b"same bytes"))
+        # Also across columns: a hook that is a body's footage.
+        with self.assertRaises(services.GenerationError):
+            services.add_clip(self.project, "hook", SimpleUploadedFile("otro.mp4", b"same bytes"))
+        self.assertEqual(self.project.clips.count(), 1)
+
+    def test_identical_variants_are_flagged(self):
+        from combinator.models import Variant
+        from combinator.views import _annotate_similarity
+
+        hook = Clip.objects.create(project=self.project, type="hook", order=1, original_name="g", sha256="g")
+        body1 = Clip.objects.create(project=self.project, type="body", order=1, original_name="b1", sha256="same")
+        body4 = Clip.objects.create(project=self.project, type="body", order=2, original_name="b4", sha256="same")
+        a = Variant.objects.create(project=self.project, hook=hook, body=body1, position=1)
+        b = Variant.objects.create(project=self.project, hook=hook, body=body4, position=2)
+        annotated = _annotate_similarity([a, b])
+        self.assertEqual(annotated[0].similar_level, "identical")
+        self.assertEqual(annotated[0].similar_label, "Idéntico a #002")

@@ -1,5 +1,6 @@
 """Domain operations. Views and jobs call these; they never run ffmpeg themselves."""
 
+import hashlib
 from datetime import timedelta
 import django_rq
 from django.conf import settings
@@ -19,16 +20,30 @@ def enqueue(func, *args):
     django_rq.get_queue("video").enqueue(func, *args)
 
 
+def file_sha256(uploaded_file):
+    digest = hashlib.sha256()
+    for chunk in uploaded_file.chunks():
+        digest.update(chunk)
+    uploaded_file.seek(0)
+    return digest.hexdigest()
+
+
 def add_clip(project, clip_type, uploaded_file):
+    # Hash outside the lock: it reads the whole file.
+    sha256 = file_sha256(uploaded_file)
     # Uploads arrive in parallel; lock the project so each clip gets its own number
     # (GA01, GA02…). The file is written after the lock is released.
     with transaction.atomic():
         project = Project.objects.select_for_update().get(pk=project.pk)
         if project.status != Project.Status.DRAFT:
             raise GenerationError("Este proyecto ya fue generado; crea uno nuevo para añadir clips.")
+        # The same footage twice would silently produce byte-identical videos.
+        twin = project.clips.filter(sha256=sha256).first()
+        if twin:
+            raise GenerationError(f"{uploaded_file.name} es el mismo video que {twin.code} ({twin.original_name}).")
         last = project.clips.filter(type=clip_type).aggregate(m=Max("order"))["m"] or 0
         clip = Clip.objects.create(
-            project=project, type=clip_type, original_name=uploaded_file.name, order=last + 1
+            project=project, type=clip_type, original_name=uploaded_file.name, order=last + 1, sha256=sha256
         )
     clip.file.save(f"{clip_type}_{clip.order:02d}{_ext(uploaded_file.name)}", uploaded_file)
 
@@ -103,7 +118,8 @@ def generate_variants(project_id, mode=Project.Mode.DISTINCT):
         if failed:
             raise GenerationError(f"Quita los clips que no se pudieron procesar: {', '.join(failed)}.")
 
-        ordered = variation.publication_order(combinations(hooks, bodies, closers, mode))
+        # Order by footage, not by row: two rows with the same bytes count as the same clip.
+        ordered = variation.publication_order(combinations(hooks, bodies, closers, mode), key=lambda c: c.content_key)
         variants = Variant.objects.bulk_create(
             Variant(project=project, hook=h, body=b, closer=c, position=i)
             for i, (h, b, c) in enumerate(ordered, start=1)

@@ -21,7 +21,7 @@
   const pad = (n) => String(n).padStart(2, "0");
   const seconds = (s) => `${Number(s).toFixed(1)} s`;
   const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-  const minutesLeft = (s) => (s >= 60 ? `${Math.floor(s / 60)} min` : `${s} s`);
+  const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   const post = (url, data) =>
     fetch(url, {
@@ -186,14 +186,64 @@
     }
 
     const url = URL.createObjectURL(file);
-    local.set(id, { file, url, type });
+    const entry = { file, url, type, name: file.name };
+    local.set(id, entry);
     $("[data-info]", row).textContent = mb(file.size);
+    findTwin(entry).then((twin) => {
+      if (!twin || !row.isConnected) return;
+      // The same footage twice would produce byte-identical videos.
+      URL.revokeObjectURL(url);
+      local.delete(id);
+      markInvalid(row, `Repetido: es el mismo archivo que ${twin.name}`);
+      refreshFormula();
+    });
     queueThumb(url).then(({ thumb, duration }) => {
-      if (!row.isConnected) return;
+      if (!row.isConnected || !local.has(id)) return;
       if (thumb) $(".clip-thumb img", row).src = thumb;
-      if (duration && isFinite(duration)) $("[data-info]", row).textContent = `${seconds(duration)} · ${mb(file.size)}`;
+      if (!duration || !isFinite(duration)) return;
+      entry.duration = duration;
+      const info = $("[data-info]", row);
+      info.textContent = `${seconds(duration)} · ${mb(file.size)}`;
+      // Re-exports of the same take have different bytes but the same length: flag, don't block.
+      const lookalike = sameLength(entry);
+      if (lookalike) {
+        info.textContent = `${seconds(duration)} · dura igual que ${lookalike}. ¿Es el mismo video?`;
+        row.classList.add("clip-suspect");
+      }
     });
     refreshFormula();
+  }
+
+  // Byte-compare against other chosen files of the same size (any column), 4 MB at a time.
+  async function findTwin(entry) {
+    for (const other of local.values()) {
+      if (other === entry || other.file.size !== entry.file.size) continue;
+      if (await sameBytes(entry.file, other.file)) return other;
+    }
+    return null;
+  }
+
+  async function sameBytes(a, b) {
+    const step = 4 * 1024 * 1024;
+    for (let start = 0; start < a.size; start += step) {
+      const [x, y] = await Promise.all([
+        a.slice(start, start + step).arrayBuffer(),
+        b.slice(start, start + step).arrayBuffer(),
+      ]);
+      const u = new Uint8Array(x);
+      const v = new Uint8Array(y);
+      for (let k = 0; k < u.length; k++) if (u[k] !== v[k]) return false;
+    }
+    return true;
+  }
+
+  function sameLength(entry) {
+    const close = (d) => d && Math.abs(d - entry.duration) < 0.02;
+    for (const other of local.values()) {
+      if (other !== entry && close(other.duration)) return other.name;
+    }
+    const server = $$(".clip[data-duration]").find((r) => close(Number(r.dataset.duration)));
+    return server ? $(".clip-name", server).textContent : null;
   }
 
   function markInvalid(row, message) {
@@ -417,7 +467,6 @@
       if (!row || !totals[i]) return;
       $(".strip", row).style.setProperty("--w", `${(totals[i] / longest) * 100}%`);
       $$(".strip i", row).forEach((seg, j) => { seg.style.flex = v.segments[j] || 1; });
-      $(".variant-duration", row).textContent = `${Math.round(totals[i])} s`;
     });
   }
 
@@ -433,9 +482,8 @@
       if (v.download_url) {
         ready += 1;
         if (!$("a", state)) {
-          state.innerHTML = `<a class="btn btn-small" href="${v.download_url}">Descargar</a><small data-left></small>`;
+          state.innerHTML = `<a class="btn btn-small" href="${v.download_url}">Descargar</a>`;
         }
-        $("[data-left]", state).textContent = `quedan ${minutesLeft(v.seconds_left)}`;
       } else {
         const text = { failed: "Falló", processing: "Uniendo…", pending: "En cola" }[v.status] || "Vencido";
         const cls = v.status === "done" ? "expired" : v.status;
@@ -449,8 +497,8 @@
       if (similarity) {
         similarity.className = `similarity similarity-${v.similar_level}`;
         similarity.title = v.similar_note;
-        $("[data-similarity-text]", similarity).textContent =
-          v.similar_level === "high" ? `Casi igual · ${v.similar_percent} %` : `${v.similar_percent} % en común`;
+        similarity.hidden = !v.similar_label;
+        $("[data-similarity-text]", similarity).textContent = v.similar_label;
       }
       row.dataset.status = v.status;
       row.className = `variant variant-${v.download_url ? "done" : v.status === "done" ? "expired" : v.status}`;
@@ -467,6 +515,8 @@
     }
 
     $("#done-count").textContent = ready;
+    const expiries = data.variants.map((v) => v.expires_at).filter(Boolean).sort();
+    showExpiry(expiries[0]);
     const all = $("#download-all");
     all.classList.toggle("disabled", ready === 0);
     all.setAttribute("aria-disabled", ready === 0 ? "true" : "false");
@@ -477,6 +527,13 @@
     }
   }
 
+  // One deadline for the whole project instead of a countdown on every row.
+  function showExpiry(iso) {
+    const note = $("#expiry");
+    if (note && iso) note.textContent = `Descárgalos antes de las ${clock(iso)}. Después se borran, igual que los clips que subiste.`;
+  }
+
+  showExpiry($("#expiry")?.dataset.expires);
   refreshFormula();
   poll();
 })();

@@ -32,7 +32,7 @@
 
     <ul class="clips" data-list="{{ column.type }}">
       {% for clip in column.clips %}
-      <li class="clip clip-{{ clip.status }} {% if not clip.enabled %}clip-off{% endif %}" data-clip="{{ clip.uuid }}" data-status="{{ clip.status }}" data-order="{{ clip.order }}">
+      <li class="clip clip-{{ clip.status }} {% if not clip.enabled %}clip-off{% endif %}" data-clip="{{ clip.uuid }}" data-status="{{ clip.status }}" data-order="{{ clip.order }}"{% if clip.duration %} data-duration="{{ clip.duration|stringformat:'f' }}"{% endif %}>
         {% if project.status == 'draft' %}
         <input type="checkbox" class="clip-toggle" aria-label="Usar {{ clip.original_name }}" {% if clip.enabled %}checked{% endif %}
                data-toggle-url="{% url 'combinator:clip_toggle' clip.uuid %}">
@@ -100,11 +100,13 @@
       <div class="progress-bar"><i data-progress-bar></i></div>
     </div>
     <p class="panel-progress"><span id="done-count">{{ ready_total }}</span> listos para descargar</p>
-    {% if near_duplicates %}
-    <p class="panel-warning">{{ near_duplicates }} video{{ near_duplicates|pluralize }} solo cambia{{ near_duplicates|pluralize:"n" }} en el cierre respecto a otro. Publícalos separados o elige otros.</p>
+    {% if identical %}
+    <p class="panel-warning panel-danger">{{ identical }} videos están repetidos: usaste el mismo clip dos veces. Publica solo uno de cada pareja marcada como «Idéntico».</p>
+    {% elif near_duplicates %}
+    <p class="panel-warning">{{ near_duplicates }} video{{ near_duplicates|pluralize }} solo cambia{{ near_duplicates|pluralize:"n" }} en el cierre respecto a otro. Publícalos con días de diferencia.</p>
     {% endif %}
     <a class="btn btn-primary btn-block {% if not ready_total %}disabled{% endif %}" id="download-all" href="{% url 'combinator:download_all' project.uuid %}" aria-disabled="{% if ready_total %}false{% else %}true{% endif %}">Descargar todo (.zip)</a>
-    <p class="panel-fine">Cada video se puede descargar durante {{ ttl_minutes }} minutos desde que termina. Después se borra, igual que los clips que subiste.</p>
+    <p class="panel-fine" id="expiry" {% if expires_at %}data-expires="{{ expires_at|date:'c' }}"{% endif %}>Los videos se borran {{ ttl_minutes }} minutos después de generarse, igual que los clips que subiste.</p>
     {% endif %}
   </aside>
 </section>
@@ -123,14 +125,12 @@
         {% for clip in variant.clips %}<i class="{{ clip.type }}" style="flex: {{ clip.duration|default:1|unlocalize }}"></i>{% endfor %}
       </span>
       <span class="variant-label">{% for clip in variant.clips %}{% if not forloop.first %} + {% endif %}<b class="{{ clip.type }}">{{ clip.code }}</b>{% endfor %}</span>
-      <span class="variant-duration">{% if variant.total_duration %}{{ variant.total_duration|floatformat:0 }} s{% endif %}</span>
-      <span class="similarity similarity-{{ variant.similar_level }}" data-similarity title="{{ variant.similar_note }}">
-        <i aria-hidden="true"></i><span data-similarity-text>{% if variant.similar_level == 'high' %}Casi igual · {{ variant.similar_percent }} %{% else %}{{ variant.similar_percent }} % en común{% endif %}</span>
+      <span class="similarity similarity-{{ variant.similar_level }}" data-similarity title="{{ variant.similar_note }}" {% if not variant.similar_label %}hidden{% endif %}>
+        <i aria-hidden="true"></i><span data-similarity-text>{{ variant.similar_label }}</span>
       </span>
       <span class="variant-state" data-state>
         {% if variant.is_downloadable %}
           <a class="btn btn-small" href="{% url 'combinator:download_variant' variant.uuid %}">Descargar</a>
-          <small data-left>quedan {{ variant.minutes_left }} min</small>
         {% elif variant.status == 'failed' %}<span class="status status-failed" title="{{ variant.error }}">Falló</span>
         {% elif variant.status == 'expired' or variant.status == 'done' %}<span class="status status-expired">Vencido</span>
         {% elif variant.status == 'processing' %}<span class="status status-processing">Uniendo…</span>

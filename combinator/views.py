@@ -44,21 +44,23 @@ def _wants_json(request):
 
 def _annotate_similarity(variants):
     """Attach to each variant how much it overlaps with its closest sibling (see variation.py)."""
-    results = variation.similarity([(v.hook, v.body, v.closer) for v in variants], lambda clip: clip.duration)
+    results = variation.similarity(
+        [(v.hook, v.body, v.closer) for v in variants], lambda clip: clip.duration, key=lambda clip: clip.content_key
+    )
     for variant, result in zip(variants, results):
         nearest = variants[result["nearest"]] if result["nearest"] is not None else None
-        variant.similar_percent = result["percent"]
         variant.similar_level = result["level"]
+        variant.similar_label = ""
+        variant.similar_note = ""
         if nearest is None:
-            variant.similar_note = "Es el único video del proyecto."
+            continue
+        # Only problems get a label; a plain row means the video is fine to publish.
+        if result["level"] == "identical":
+            variant.similar_label = f"Idéntico a #{nearest.number}"
+            variant.similar_note = f"Es el mismo video que #{nearest.number}. Publica solo uno de los dos."
         elif result["level"] == "high":
-            variant.similar_note = f"Comparte el {result['percent']} % con #{nearest.number}: solo cambia el cierre."
-        elif result["percent"] == 0:
-            variant.similar_note = "No comparte ningún clip con otro video."
-        else:
-            variant.similar_note = (
-                f"Comparte el {result['percent']} % con #{nearest.number}; cambia {' y '.join(result['differs'])}."
-            )
+            variant.similar_label = f"Casi igual a #{nearest.number}"
+            variant.similar_note = f"Solo cambia el cierre respecto a #{nearest.number}. Publícalos con días de diferencia."
     return variants
 
 
@@ -99,16 +101,17 @@ def project_detail(request, uuid):
     clips = list(project.clips.all())
     columns = [{**column, "clips": [c for c in clips if c.type == column["type"]]} for column in COLUMNS]
     variants = _annotate_similarity(list(project.variants.select_related("hook", "body", "closer")))
-    now = timezone.now()
     for variant in variants:
         variant.total_duration = sum(c.duration or 0 for c in variant.clips)
-        variant.minutes_left = int((variant.expires_at - now).total_seconds() // 60) if variant.is_downloadable else 0
+    downloadable = [v for v in variants if v.is_downloadable]
     return render(request, "combinator/project_detail.html", {
         "project": project,
         "columns": columns,
         "variants": variants,
         "max_duration": max((v.total_duration for v in variants), default=0),
-        "ready_total": sum(1 for v in variants if v.is_downloadable),
+        "ready_total": len(downloadable),
+        "expires_at": min((v.expires_at for v in downloadable), default=None),
+        "identical": sum(1 for v in variants if v.similar_level == "identical"),
         "near_duplicates": sum(1 for v in variants if v.similar_level == "high"),
         "modes": Project.Mode,
         "clips_ready": sum(1 for c in clips if c.is_ready),
@@ -152,18 +155,18 @@ def _clip_json(clip):
     }
 
 
-def _variant_json(variant, now):
+def _variant_json(variant):
     downloadable = variant.is_downloadable
     return {
         "uuid": str(variant.uuid),
         "status": variant.status,
         "error": variant.error,
         "download_url": reverse("combinator:download_variant", args=[variant.uuid]) if downloadable else None,
-        "seconds_left": int((variant.expires_at - now).total_seconds()) if downloadable else None,
+        "expires_at": variant.expires_at.isoformat() if downloadable else None,
         # Durations are only known once clips are normalized; the page redraws its strips from these.
         "segments": [clip.duration or 0 for clip in variant.clips],
-        "similar_percent": variant.similar_percent,
         "similar_level": variant.similar_level,
+        "similar_label": variant.similar_label,
         "similar_note": variant.similar_note,
     }
 
@@ -172,14 +175,13 @@ def _variant_json(variant, now):
 def project_status(request, uuid):
     """Polled by the project page while clips normalize or variants render."""
     project = _project(request, uuid)
-    now = timezone.now()
     clips = list(project.clips.all())
     variants = _annotate_similarity(list(project.variants.select_related("hook", "body", "closer")))
     return JsonResponse({
         "status": project.status,
         "count": services.variant_count(project),
         "clips": [_clip_json(c) for c in clips],
-        "variants": [_variant_json(v, now) for v in variants],
+        "variants": [_variant_json(v) for v in variants],
         "busy": any(c.status in (Clip.Status.PENDING, Clip.Status.NORMALIZING) for c in clips)
         or any(v.status not in Variant.FINISHED_STATUSES for v in variants),
     })

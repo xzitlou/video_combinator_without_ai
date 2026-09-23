@@ -92,6 +92,20 @@ class SimilarityTests(SimpleTestCase):
         result = variation.similarity(combos, durations.get)
         self.assertEqual((result[0]["level"], result[0]["nearest"]), ("high", 1))
 
+    def test_same_footage_under_two_names_is_identical(self):
+        combos = [("H1", "B1", None), ("H1", "B1-copy", None), ("H2", "B2", None)]
+        result = variation.similarity(combos, lambda c: None, key=lambda c: c.replace("-copy", ""))
+        self.assertEqual((result[0]["level"], result[0]["nearest"]), ("identical", 1))
+        self.assertEqual(result[2]["level"], "low")
+
+    def test_order_treats_same_footage_as_same_clip(self):
+        combos = variation.all_combinations(["H1", "H2", "H3"], ["B1", "B1-copy", "B2"], [])
+        order = variation.publication_order(combos, key=lambda c: c.replace("-copy", ""))
+        self.assertCountEqual(order, combos)
+        strip = lambda combo: tuple(c.replace("-copy", "") for c in combo[:2])
+        for a, b in zip(order, order[1:]):
+            self.assertNotEqual(strip(a), strip(b))
+
     def test_single_video(self):
         self.assertEqual(variation.similarity([("H1", "B1", None)], self.durations.get)[0]["nearest"], None)
 

@@ -119,8 +119,10 @@ def _improve(order):
     return order
 
 
-def publication_order(combos):
+def publication_order(combos, key=None):
     """Reorder so nearby videos (neighbours and two apart) share as little as possible.
+
+    `key(clip)` maps a clip to what "same clip" means (default: the clip itself).
 
     Builds two candidate walks, a greedy one and one that goes round the hook+body pairs, polishes
     both with 2-opt and keeps the cheaper. Not guaranteed optimal. Deterministic; well under a
@@ -129,30 +131,47 @@ def publication_order(combos):
     combos = list(combos)
     if not combos:
         return []
-    candidates = [_improve(_greedy(combos)), _improve(_rounds(combos))]
-    return min(candidates, key=_total_cost)
+    keyed = [_keyed(combo, key) for combo in combos]
+    back = {}
+    for k, combo in zip(keyed, combos):
+        back.setdefault(k, []).append(combo)
+    candidates = [_improve(_greedy(keyed)), _improve(_rounds(keyed))]
+    best = min(candidates, key=_total_cost)
+    return [back[k].pop(0) for k in best]
 
 
-def similarity(combos, duration):
+def _keyed(combo, key):
+    if key is None:
+        return tuple(combo)
+    return tuple(None if clip is None else key(clip) for clip in combo)
+
+
+def similarity(combos, duration, key=None):
     """For each combo, how close it is to its siblings.
 
     `duration(clip)` gives a clip's length (None if not known yet; then every segment weighs the
-    same). Returns a list aligned with `combos` of dicts with a level, the index of the sibling
-    the verdict refers to, the percent of this video's duration shared with it and the slots
-    that differ. Level is "high" when some sibling differs only in the closer (the case platforms
-    are most likely to treat as a repeat); then that sibling is reported. Otherwise it is "low"
-    and the sibling sharing the most duration is reported.
+    same); `key(clip)` decides when two clips are the same footage (default: equality).
+    Returns a list aligned with `combos` of dicts with a level, the index of the sibling the
+    verdict refers to, the percent of this video's duration shared with it and the slots that
+    differ. Level is "identical" when some sibling has the same footage in every slot, "high"
+    when some sibling differs only in the closer (the case platforms are most likely to treat as
+    a repeat), otherwise "low"; the sibling reported is the one behind the worst level.
     """
     clips = {c for combo in combos for c in combo if c is not None}
     known = all(duration(c) for c in clips)
     weight = (lambda c: duration(c)) if known else (lambda c: 1)
+    same = (lambda x, y: key(x) == key(y)) if key else (lambda x, y: x == y)
 
     def compare(a, b):
         total = sum(weight(c) for c in a if c is not None) or 1
-        shared = sum(weight(x) for x, y in zip(a, b) if x is not None and x == y)
-        differs = [name for name, x, y in zip(SLOT_NAMES, a, b) if x != y]
+        shared = sum(weight(x) for x, y in zip(a, b) if x is not None and y is not None and same(x, y))
+        differs = [
+            name for name, x, y in zip(SLOT_NAMES, a, b)
+            if not (x is None and y is None) and (x is None or y is None or not same(x, y))
+        ]
         return round(100 * shared / total), differs
 
+    rank = {"identical": 2, "high": 1, "low": 0}
     results = []
     for i, a in enumerate(combos):
         best = None
@@ -160,9 +179,9 @@ def similarity(combos, duration):
             if i == j:
                 continue
             percent, differs = compare(a, b)
-            level = "high" if differs == ["cierre"] else "low"
-            key = (level == "high", percent)
-            if best is None or key > best[0]:
-                best = (key, {"percent": percent, "nearest": j, "differs": differs, "level": level})
+            level = "identical" if not differs else "high" if differs == ["cierre"] else "low"
+            order = (rank[level], percent)
+            if best is None or order > best[0]:
+                best = (order, {"percent": percent, "nearest": j, "differs": differs, "level": level})
         results.append(best[1] if best else {"percent": 0, "nearest": None, "differs": [], "level": "low"})
     return results

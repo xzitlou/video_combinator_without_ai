@@ -68,6 +68,9 @@ class Clip(models.Model):
     file = models.FileField(upload_to=clip_upload_to, max_length=500, blank=True)
     normalized_file = models.FileField(upload_to=clip_normalized_to, max_length=500, blank=True)
     duration = models.FloatField(null=True, blank=True)
+    # Fingerprint of the uploaded bytes: catches the same file uploaded twice. Kept after the
+    # files are purged (it can't be turned back into the video).
+    sha256 = models.CharField(max_length=64, blank=True, db_index=True)
     order = models.PositiveIntegerField(default=0)
     enabled = models.BooleanField(default=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -82,6 +85,11 @@ class Clip(models.Model):
 
     def __str__(self):
         return f"{self.get_type_display()} {self.order}: {self.original_name}"
+
+    @property
+    def content_key(self):
+        """Identity of the footage: same bytes ⇒ same key, even across two Clip rows."""
+        return self.sha256 or f"pk:{self.pk}"
 
     @property
     def is_ready(self):
