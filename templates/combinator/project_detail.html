@@ -100,6 +100,7 @@
       <div class="progress-bar"><i data-progress-bar></i></div>
     </div>
     <p class="panel-progress"><span id="done-count">{{ ready_total }}</span> listos para descargar</p>
+    {% if days|length > 1 %}<p class="panel-plan">Publícalos en {{ days|length }} días, hasta {{ per_day }} al día. El ZIP trae una carpeta por día.</p>{% endif %}
     {% if identical %}
     <p class="panel-warning panel-danger">{{ identical }} videos están repetidos: usaste el mismo clip dos veces. Publica solo uno de cada pareja marcada como «Idéntico».</p>
     {% elif near_duplicates %}
@@ -114,31 +115,41 @@
 {% if variants %}
 <section class="variants">
   <div class="variants-head">
-    <h2>Videos</h2>
-    <p>En orden de publicación: dos videos seguidos cambian lo máximo posible.</p>
+    <h2>Plan de publicación</h2>
+    <p>{{ days|length }} día{{ days|length|pluralize }}, hasta {{ per_day }} video{{ per_day|pluralize }} al día. Cada día usa contenidos distintos y, si se puede, ganchos que no se repitieron el día anterior.</p>
   </div>
-  <ul class="variant-rows">
-    {% for variant in variants %}
-    <li class="variant variant-{{ variant.status }}" data-variant="{{ variant.uuid }}" data-status="{{ variant.status }}">
-      <span class="variant-number">#{{ variant.number }}</span>
-      <span class="strip" style="--w: {% widthratio variant.total_duration max_duration 100 %}%" aria-hidden="true">
-        {% for clip in variant.clips %}<i class="{{ clip.type }}" style="flex: {{ clip.duration|default:1|unlocalize }}"></i>{% endfor %}
-      </span>
-      <span class="variant-label">{% for clip in variant.clips %}{% if not forloop.first %} + {% endif %}<b class="{{ clip.type }}">{{ clip.code }}</b>{% endfor %}</span>
-      <span class="similarity similarity-{{ variant.similar_level }}" data-similarity title="{{ variant.similar_note }}" {% if not variant.similar_label %}hidden{% endif %}>
-        <i aria-hidden="true"></i><span data-similarity-text>{{ variant.similar_label }}</span>
-      </span>
-      <span class="variant-state" data-state>
-        {% if variant.is_downloadable %}
-          <a class="btn btn-small" href="{% url 'combinator:download_variant' variant.uuid %}">Descargar</a>
-        {% elif variant.status == 'failed' %}<span class="status status-failed" title="{{ variant.error }}">Falló</span>
-        {% elif variant.status == 'expired' or variant.status == 'done' %}<span class="status status-expired">Vencido</span>
-        {% elif variant.status == 'processing' %}<span class="status status-processing">Uniendo…</span>
-        {% else %}<span class="status status-pending">En cola</span>{% endif %}
-      </span>
-    </li>
-    {% endfor %}
-  </ul>
+  {% for day in days %}
+  <div class="day">
+    <div class="day-head">
+      <h3>{% if day.number %}Día {{ day.number }}{% else %}Sin día asignado{% endif %}</h3>
+      {% if day.number %}
+      <a class="day-download {% if not day.downloadable %}disabled{% endif %}" data-day-download="{{ day.number }}" href="{% url 'combinator:download_all' project.uuid %}?day={{ day.number }}">Descargar día {{ day.number }} (.zip)</a>
+      {% endif %}
+    </div>
+    <ul class="variant-rows">
+      {% for variant in day.variants %}
+      <li class="variant variant-{{ variant.status }}" data-variant="{{ variant.uuid }}" data-status="{{ variant.status }}" data-day="{{ variant.publish_day|default:'' }}">
+        <span class="variant-number">#{{ variant.number }}</span>
+        <span class="strip" style="--w: {% widthratio variant.total_duration max_duration 100 %}%" aria-hidden="true">
+          {% for clip in variant.clips %}<i class="{{ clip.type }}" style="flex: {{ clip.duration|default:1|unlocalize }}"></i>{% endfor %}
+        </span>
+        <span class="variant-label">{% for clip in variant.clips %}{% if not forloop.first %} + {% endif %}<b class="{{ clip.type }}">{{ clip.code }}</b>{% endfor %}</span>
+        <span class="similarity similarity-{{ variant.similar_level }}" data-similarity title="{{ variant.similar_note }}" {% if not variant.similar_label %}hidden{% endif %}>
+          <i aria-hidden="true"></i><span data-similarity-text>{{ variant.similar_label }}</span>
+        </span>
+        <span class="variant-state" data-state>
+          {% if variant.is_downloadable %}
+            <a class="btn btn-small" href="{% url 'combinator:download_variant' variant.uuid %}">Descargar</a>
+          {% elif variant.status == 'failed' %}<span class="status status-failed" title="{{ variant.error }}">Falló</span>
+          {% elif variant.status == 'expired' or variant.status == 'done' %}<span class="status status-expired">Vencido</span>
+          {% elif variant.status == 'processing' %}<span class="status status-processing">Uniendo…</span>
+          {% else %}<span class="status status-pending">En cola</span>{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
 </section>
 {% endif %}
 </div>

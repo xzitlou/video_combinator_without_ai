@@ -119,10 +119,14 @@ def generate_variants(project_id, mode=Project.Mode.DISTINCT):
             raise GenerationError(f"Quita los clips que no se pudieron procesar: {', '.join(failed)}.")
 
         # Order by footage, not by row: two rows with the same bytes count as the same clip.
-        ordered = variation.publication_order(combinations(hooks, bodies, closers, mode), key=lambda c: c.content_key)
+        footage = lambda clip: clip.content_key  # noqa: E731
+        ordered = variation.publication_order(combinations(hooks, bodies, closers, mode), key=footage)
+        days = variation.publishing_plan(ordered, settings.PUBLISH_MAX_PER_DAY, key=footage)
+        # Number videos day by day, so #001… is also the order to post them in.
+        planned = [(day, ordered[i]) for day, indexes in enumerate(days, start=1) for i in indexes]
         variants = Variant.objects.bulk_create(
-            Variant(project=project, hook=h, body=b, closer=c, position=i)
-            for i, (h, b, c) in enumerate(ordered, start=1)
+            Variant(project=project, hook=h, body=b, closer=c, position=position, publish_day=day)
+            for position, (day, (h, b, c)) in enumerate(planned, start=1)
         )
         project.status = Project.Status.PROCESSING
         project.mode = mode

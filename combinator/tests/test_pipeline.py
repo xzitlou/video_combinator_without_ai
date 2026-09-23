@@ -133,6 +133,9 @@ class GenerationRulesTests(MediaTestCase):
             variants = services.generate_variants(project.pk)
         self.assertEqual(len(variants), 6)
         self.assertTrue(all(v.closer is None for v in variants))
+        # 3 bodies ⇒ 3 videos a day, numbered day by day.
+        self.assertEqual([v.publish_day for v in variants], [1, 1, 1, 2, 2, 2])
+        self.assertEqual([v.position for v in variants], [1, 2, 3, 4, 5, 6])
         self.assertEqual(variants[0].label, "GA01 + CO01")
         self.assertEqual(variants[0].output_name, "001_lote_ga01_co01.mp4")
 

@@ -117,6 +117,10 @@ OUTPUT_TTL_SECONDS = int(os.environ.get("OUTPUT_TTL_SECONDS", 60 * 60))
 # Uploaded clips of a project that never gets generated are deleted after this.
 ABANDONED_UPLOAD_TTL_SECONDS = int(os.environ.get("ABANDONED_UPLOAD_TTL_SECONDS", 60 * 60 * 24))
 
+# Publishing plan: at most this many videos per day (and never the same content clip twice a
+# day). A conservative product default, not a documented platform limit.
+PUBLISH_MAX_PER_DAY = int(os.environ.get("PUBLISH_MAX_PER_DAY", 6))
+
 # Per-clip upload limit (bytes). Uploads stream to a temp file, not memory.
 MAX_CLIP_SIZE = int(os.environ.get("MAX_CLIP_SIZE", 500 * 1024 * 1024))
 

@@ -125,8 +125,9 @@ class Variant(models.Model):
     body = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+")
     # Closers are optional: without enabled closers each variant is hook + body.
     closer = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
-    # Suggested publishing order (1-based): consecutive videos differ as much as possible.
+    # Suggested publishing order (1-based) and day (1-based) from variation.publishing_plan.
     position = models.PositiveIntegerField(default=0)
+    publish_day = models.PositiveIntegerField(null=True, blank=True)
     output_file = models.FileField(upload_to=variant_output_to, max_length=500, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     error = models.TextField(blank=True)
@@ -135,7 +136,7 @@ class Variant(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
-        ordering = ["position", "pk"]
+        ordering = ["publish_day", "position", "pk"]
         constraints = [
             # closer may be NULL, and Postgres 14 treats NULLs as distinct, so hook+body-only
             # variants aren't covered; generate_variants runs once per project, which suffices.

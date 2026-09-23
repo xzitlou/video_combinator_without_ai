@@ -1,4 +1,5 @@
 import zipfile
+from itertools import groupby
 
 from django.conf import settings
 from django.contrib import messages
@@ -104,10 +105,18 @@ def project_detail(request, uuid):
     for variant in variants:
         variant.total_duration = sum(c.duration or 0 for c in variant.clips)
     downloadable = [v for v in variants if v.is_downloadable]
+    days = [
+        {"number": day, "variants": list(group)}
+        for day, group in groupby(variants, key=lambda v: v.publish_day)
+    ]
+    for day in days:
+        day["downloadable"] = sum(1 for v in day["variants"] if v.is_downloadable)
     return render(request, "combinator/project_detail.html", {
         "project": project,
         "columns": columns,
         "variants": variants,
+        "days": days,
+        "per_day": max((len(d["variants"]) for d in days), default=0),
         "max_duration": max((v.total_duration for v in variants), default=0),
         "ready_total": len(downloadable),
         "expires_at": min((v.expires_at for v in downloadable), default=None),
@@ -163,6 +172,7 @@ def _variant_json(variant):
         "error": variant.error,
         "download_url": reverse("combinator:download_variant", args=[variant.uuid]) if downloadable else None,
         "expires_at": variant.expires_at.isoformat() if downloadable else None,
+        "publish_day": variant.publish_day,
         # Durations are only known once clips are normalized; the page redraws its strips from these.
         "segments": [clip.duration or 0 for clip in variant.clips],
         "similar_level": variant.similar_level,
@@ -268,12 +278,19 @@ class _ZipStream:
         return out
 
 
+def _zip_name(variant):
+    """One folder per publishing day, so the ZIP reads as the plan."""
+    if variant.publish_day:
+        return f"dia-{variant.publish_day:02d}/{variant.output_name}"
+    return variant.output_name
+
+
 def _zip_variants(variants):
     stream = _ZipStream()
     # Outputs are already compressed video, so store them; no CPU spent on deflate.
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_STORED) as zf:
         for variant in variants:
-            info = zipfile.ZipInfo(variant.output_name, date_time=timezone.localtime(variant.completed_at).timetuple()[:6])
+            info = zipfile.ZipInfo(_zip_name(variant), date_time=timezone.localtime(variant.completed_at).timetuple()[:6])
             with zf.open(info, "w", force_zip64=True) as dest, variant.output_file.open("rb") as src:
                 for chunk in iter(lambda: src.read(1024 * 1024), b""):
                     dest.write(chunk)
@@ -283,12 +300,18 @@ def _zip_variants(variants):
 
 @login_required
 def download_all(request, uuid):
+    """ZIP of every downloadable video, or of one publishing day with ?day=N."""
     project = _project(request, uuid)
-    variants = [
-        v for v in project.variants.select_related("project", "hook", "body", "closer") if v.is_downloadable
-    ]
+    variants = project.variants.select_related("project", "hook", "body", "closer")
+    day = request.GET.get("day")
+    if day:
+        if not day.isdigit():
+            raise Http404("Día no válido.")
+        variants = variants.filter(publish_day=int(day))
+    variants = [v for v in variants if v.is_downloadable]
     if not variants:
         raise Http404("No hay videos disponibles para descargar.")
+    suffix = f"dia-{int(day):02d}" if day else "videos"
     response = StreamingHttpResponse(_zip_variants(variants), content_type="application/zip")
-    response["Content-Disposition"] = f'attachment; filename="{project.slug}_videos.zip"'
+    response["Content-Disposition"] = f'attachment; filename="{project.slug}_{suffix}.zip"'
     return response

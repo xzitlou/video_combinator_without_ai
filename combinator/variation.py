@@ -146,6 +146,67 @@ def _keyed(combo, key):
     return tuple(None if clip is None else key(clip) for clip in combo)
 
 
+# Cost of dropping each soft rule of the publishing plan (index = how many rules were relaxed).
+_RELAX_COST = (0, 1, 3, 10)
+
+
+def _plan_from(keyed, order, per_day):
+    """Fill days greedily walking `order`; returns (cost, days)."""
+    remaining = list(order)
+    days, prev_hooks, prev_pairs, cost = [], set(), set(), 0
+    while remaining:
+        day, hooks, bodies = [], set(), set()
+        for relaxed in range(4):
+            for i in list(remaining):
+                if len(day) == per_day:
+                    break
+                hook, body, _ = keyed[i]
+                if body in bodies:
+                    continue
+                if relaxed < 1 and hook in prev_hooks:
+                    continue
+                if relaxed < 2 and hook in hooks:
+                    continue
+                if relaxed < 3 and (hook, body) in prev_pairs:
+                    continue
+                day.append(i)
+                remaining.remove(i)
+                hooks.add(hook)
+                bodies.add(body)
+                cost += _RELAX_COST[relaxed]
+        days.append(day)
+        prev_hooks = hooks
+        prev_pairs = {keyed[i][:2] for i in day}
+    return (len(days), cost), days
+
+
+def publishing_plan(combos, max_per_day, key=None):
+    """Split videos (already in publication order) into days. Returns lists of indexes.
+
+    Hard rule: a content clip (body) appears at most once per day, so a day never repeats most
+    of its footage. Soft rules, dropped one at a time (least important first) when a day can't
+    be filled otherwise: no hook from yesterday; each hook once per day; no hook+body pair from
+    yesterday (in "all" mode that keeps closer-only variants on non-consecutive days). Videos
+    per day: one per distinct body, capped at `max_per_day`.
+
+    A greedy fill can corner itself on the last days, so it is tried starting from each video
+    and the plan with the fewest days, then the fewest broken rules, wins. Deterministic.
+    """
+    keyed = [_keyed(combo, key) for combo in combos]
+    if not keyed:
+        return []
+    per_day = max(1, min(max_per_day, len({k[1] for k in keyed})))
+    n = len(keyed)
+    best = None
+    for start in range(n):
+        score, days = _plan_from(keyed, [(start + k) % n for k in range(n)], per_day)
+        if best is None or score < best[0]:
+            best = (score, days)
+            if score[1] == 0 and score[0] == -(-n // per_day):
+                break  # can't do better: minimum days, no rule broken
+    return best[1]
+
+
 def similarity(combos, duration, key=None):
     """For each combo, how close it is to its siblings.
 

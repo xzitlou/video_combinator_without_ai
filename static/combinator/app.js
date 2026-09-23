@@ -21,7 +21,7 @@
   const pad = (n) => String(n).padStart(2, "0");
   const seconds = (s) => `${Number(s).toFixed(1)} s`;
   const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-  const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
   const post = (url, data) =>
     fetch(url, {
@@ -515,6 +515,11 @@
     }
 
     $("#done-count").textContent = ready;
+    $$("[data-day-download]").forEach((link) => {
+      const day = link.dataset.dayDownload;
+      const any = data.variants.some((v) => v.download_url && String(v.publish_day) === day);
+      link.classList.toggle("disabled", !any);
+    });
     const expiries = data.variants.map((v) => v.expires_at).filter(Boolean).sort();
     showExpiry(expiries[0]);
     const all = $("#download-all");

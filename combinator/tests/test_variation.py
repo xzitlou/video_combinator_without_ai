@@ -112,3 +112,43 @@ class SimilarityTests(SimpleTestCase):
     def test_distinct_mode_has_no_near_duplicates(self):
         combos = variation.distinct_combinations(H, B, C)
         self.assertTrue(all(r["level"] == "low" for r in variation.similarity(combos, lambda c: None)))
+
+
+class PublishingPlanTests(SimpleTestCase):
+    def plan(self, combos, max_per_day=6):
+        order = variation.publication_order(combos)
+        days = variation.publishing_plan(order, max_per_day)
+        return [[order[i] for i in day] for day in days]
+
+    def assert_valid(self, days, combos):
+        self.assertCountEqual([c for day in days for c in day], combos)
+        for day in days:
+            bodies = [c[1] for c in day]
+            self.assertEqual(len(bodies), len(set(bodies)), day)  # never the same content twice a day
+
+    def test_seven_hooks_three_bodies_is_a_week_of_three(self):
+        hooks = [f"H{i}" for i in range(7)]
+        combos = variation.distinct_combinations(hooks, B, [])
+        days = self.plan(combos)
+        self.assert_valid(days, combos)
+        self.assertEqual([len(d) for d in days], [3] * 7)
+        for today, tomorrow in zip(days, days[1:]):
+            self.assertEqual(len({c[0] for c in today}), 3)  # hooks differ within a day
+            self.assertFalse({c[0] for c in today} & {c[0] for c in tomorrow})  # and from yesterday
+
+    def test_cap_per_day(self):
+        combos = variation.distinct_combinations(["H1", "H2"], [f"B{i}" for i in range(10)], [])
+        days = self.plan(combos, max_per_day=4)
+        self.assert_valid(days, combos)
+        self.assertEqual(max(len(d) for d in days), 4)
+
+    def test_single_body_means_one_video_a_day(self):
+        combos = variation.distinct_combinations(["H1", "H2", "H3"], ["B1"], [])
+        self.assertEqual([len(d) for d in self.plan(combos)], [1, 1, 1])
+
+    def test_closer_only_variants_are_not_on_consecutive_days(self):
+        combos = variation.all_combinations(H, B, C)
+        days = self.plan(combos)
+        self.assert_valid(days, combos)
+        for today, tomorrow in zip(days, days[1:]):
+            self.assertFalse({c[:2] for c in today} & {c[:2] for c in tomorrow})

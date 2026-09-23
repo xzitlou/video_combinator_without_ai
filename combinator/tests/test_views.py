@@ -146,11 +146,18 @@ class ViewTests(TestCase):
             variant.output_file.save("v.mp4", SimpleUploadedFile("v.mp4", b"video-bytes"), save=False)
             services.mark_variant_done(variant)
 
-            response = self.client.get(reverse("combinator:download_all", args=[self.project.uuid]))
+            variant.publish_day = 2
+            variant.save(update_fields=["publish_day"])
+            url = reverse("combinator:download_all", args=[self.project.uuid])
+            response = self.client.get(url)
             self.assertEqual(response.status_code, 200)
             archive = zipfile.ZipFile(io.BytesIO(b"".join(response.streaming_content)))
-            self.assertEqual(archive.namelist(), [variant.output_name])
-            self.assertEqual(archive.read(variant.output_name), b"video-bytes")
+            self.assertEqual(archive.namelist(), [f"dia-02/{variant.output_name}"])
+            self.assertEqual(archive.read(f"dia-02/{variant.output_name}"), b"video-bytes")
+
+            self.assertEqual(self.client.get(url + "?day=2").status_code, 200)
+            self.assertEqual(self.client.get(url + "?day=1").status_code, 404)
+            self.assertEqual(self.client.get(url + "?day=x").status_code, 404)
 
 
 class ParallelUploadTests(TransactionTestCase):
