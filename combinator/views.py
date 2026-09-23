@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import services
+from . import services, variation
 from .forms import ProjectForm
 from .models import Clip, Project, Variant
 
@@ -40,6 +40,26 @@ COLUMNS = [
 
 def _wants_json(request):
     return "application/json" in request.headers.get("Accept", "")
+
+
+def _annotate_similarity(variants):
+    """Attach to each variant how much it overlaps with its closest sibling (see variation.py)."""
+    results = variation.similarity([(v.hook, v.body, v.closer) for v in variants], lambda clip: clip.duration)
+    for variant, result in zip(variants, results):
+        nearest = variants[result["nearest"]] if result["nearest"] is not None else None
+        variant.similar_percent = result["percent"]
+        variant.similar_level = result["level"]
+        if nearest is None:
+            variant.similar_note = "Es el único video del proyecto."
+        elif result["level"] == "high":
+            variant.similar_note = f"Comparte el {result['percent']} % con #{nearest.number}: solo cambia el cierre."
+        elif result["percent"] == 0:
+            variant.similar_note = "No comparte ningún clip con otro video."
+        else:
+            variant.similar_note = (
+                f"Comparte el {result['percent']} % con #{nearest.number}; cambia {' y '.join(result['differs'])}."
+            )
+    return variants
 
 
 # --- Projects ------------------------------------------------------------------
@@ -78,7 +98,7 @@ def project_detail(request, uuid):
     project = _project(request, uuid)
     clips = list(project.clips.all())
     columns = [{**column, "clips": [c for c in clips if c.type == column["type"]]} for column in COLUMNS]
-    variants = list(project.variants.select_related("hook", "body", "closer"))
+    variants = _annotate_similarity(list(project.variants.select_related("hook", "body", "closer")))
     now = timezone.now()
     for variant in variants:
         variant.total_duration = sum(c.duration or 0 for c in variant.clips)
@@ -89,6 +109,8 @@ def project_detail(request, uuid):
         "variants": variants,
         "max_duration": max((v.total_duration for v in variants), default=0),
         "ready_total": sum(1 for v in variants if v.is_downloadable),
+        "near_duplicates": sum(1 for v in variants if v.similar_level == "high"),
+        "modes": Project.Mode,
         "clips_ready": sum(1 for c in clips if c.is_ready),
         "clips_used": sum(1 for c in clips if c.enabled),
         "count": services.variant_count(project),
@@ -104,7 +126,7 @@ def project_detail(request, uuid):
 def project_generate(request, uuid):
     project = _project(request, uuid)
     try:
-        services.generate_variants(project.pk)
+        services.generate_variants(project.pk, request.POST.get("mode", Project.Mode.DISTINCT))
     except services.GenerationError as exc:
         if _wants_json(request):
             return JsonResponse({"error": str(exc)}, status=409)
@@ -140,6 +162,9 @@ def _variant_json(variant, now):
         "seconds_left": int((variant.expires_at - now).total_seconds()) if downloadable else None,
         # Durations are only known once clips are normalized; the page redraws its strips from these.
         "segments": [clip.duration or 0 for clip in variant.clips],
+        "similar_percent": variant.similar_percent,
+        "similar_level": variant.similar_level,
+        "similar_note": variant.similar_note,
     }
 
 
@@ -149,7 +174,7 @@ def project_status(request, uuid):
     project = _project(request, uuid)
     now = timezone.now()
     clips = list(project.clips.all())
-    variants = list(project.variants.select_related("hook", "body", "closer"))
+    variants = _annotate_similarity(list(project.variants.select_related("hook", "body", "closer")))
     return JsonResponse({
         "status": project.status,
         "count": services.variant_count(project),

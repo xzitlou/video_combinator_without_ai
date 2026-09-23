@@ -1,14 +1,13 @@
 """Domain operations. Views and jobs call these; they never run ffmpeg themselves."""
 
 from datetime import timedelta
-from itertools import product
-
 import django_rq
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 
+from . import variation
 from .models import Clip, Project, Variant
 
 
@@ -68,17 +67,18 @@ def enabled_clips(project):
     )
 
 
-def combinations(hooks, bodies, closers):
-    """hook × body × closer; with no closers every variant is just hook + body."""
-    return product(hooks, bodies, closers or [None])
+def combinations(hooks, bodies, closers, mode):
+    if mode == Project.Mode.DISTINCT:
+        return variation.distinct_combinations(hooks, bodies, closers)
+    return variation.all_combinations(hooks, bodies, closers)
 
 
-def variant_count(project):
+def variant_count(project, mode=None):
     hooks, bodies, closers = enabled_clips(project)
-    return len(hooks) * len(bodies) * max(len(closers), 1)
+    return variation.combination_count(mode or project.mode, len(hooks), len(bodies), len(closers))
 
 
-def generate_variants(project_id):
+def generate_variants(project_id, mode=Project.Mode.DISTINCT):
     """Create one Variant per hook × body (× closer) combination.
 
     Clips may still be normalizing: each variant is queued as soon as its clips are ready,
@@ -89,10 +89,12 @@ def generate_variants(project_id):
         if project.status != Project.Status.DRAFT or project.uploads_purged_at:
             raise GenerationError("Este proyecto ya fue generado.")
 
+        if mode not in Project.Mode.values:
+            raise GenerationError("Modo de combinación no válido.")
         hooks, bodies, closers = enabled_clips(project)
         if not hooks or not bodies:
             raise GenerationError("Necesitas al menos un gancho y un contenido activos.")
-        total = len(hooks) * len(bodies) * max(len(closers), 1)
+        total = variation.combination_count(mode, len(hooks), len(bodies), len(closers))
         if total > settings.MAX_VARIANTS_PER_RUN:
             raise GenerationError(
                 f"{total} videos superan el máximo de {settings.MAX_VARIANTS_PER_RUN} por ejecución."
@@ -101,12 +103,14 @@ def generate_variants(project_id):
         if failed:
             raise GenerationError(f"Quita los clips que no se pudieron procesar: {', '.join(failed)}.")
 
+        ordered = variation.publication_order(combinations(hooks, bodies, closers, mode))
         variants = Variant.objects.bulk_create(
-            Variant(project=project, hook=h, body=b, closer=c)
-            for h, b, c in combinations(hooks, bodies, closers)
+            Variant(project=project, hook=h, body=b, closer=c, position=i)
+            for i, (h, b, c) in enumerate(ordered, start=1)
         )
         project.status = Project.Status.PROCESSING
-        project.save(update_fields=["status"])
+        project.mode = mode
+        project.save(update_fields=["status", "mode"])
         enqueue_ready_variants(project)
     return variants
 

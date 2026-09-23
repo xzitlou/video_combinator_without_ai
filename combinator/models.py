@@ -12,11 +12,17 @@ class Project(models.Model):
         PROCESSING = "processing", "Procesando"
         DONE = "done", "Terminado"
 
+    class Mode(models.TextChoices):
+        # See variation.py: "distinct" never repeats a hook+body pair.
+        DISTINCT = "distinct", "Variantes distintas"
+        ALL = "all", "Todas las combinaciones"
+
     # Public identifier used in URLs and JSON; the integer pk never leaves the server.
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="projects")
     name = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    mode = models.CharField(max_length=10, choices=Mode.choices, default=Mode.DISTINCT)
     created_at = models.DateTimeField(auto_now_add=True)
     # Set once every uploaded file of the project has been deleted.
     uploads_purged_at = models.DateTimeField(null=True, blank=True)
@@ -111,6 +117,8 @@ class Variant(models.Model):
     body = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+")
     # Closers are optional: without enabled closers each variant is hook + body.
     closer = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    # Suggested publishing order (1-based): consecutive videos differ as much as possible.
+    position = models.PositiveIntegerField(default=0)
     output_file = models.FileField(upload_to=variant_output_to, max_length=500, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     error = models.TextField(blank=True)
@@ -119,7 +127,7 @@ class Variant(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
-        ordering = ["pk"]
+        ordering = ["position", "pk"]
         constraints = [
             # closer may be NULL, and Postgres 14 treats NULLs as distinct, so hook+body-only
             # variants aren't covered; generate_variants runs once per project, which suffices.
@@ -143,5 +151,10 @@ class Variant(models.Model):
         return " + ".join(c.code for c in self.clips)
 
     @property
+    def number(self):
+        return f"{self.position:03d}"
+
+    @property
     def output_name(self):
-        return "_".join([self.project.slug, *(c.code for c in self.clips)]).lower() + ".mp4"
+        # Leading position so a folder or ZIP listing is already in publishing order.
+        return "_".join([self.number, self.project.slug, *(c.code for c in self.clips)]).lower() + ".mp4"

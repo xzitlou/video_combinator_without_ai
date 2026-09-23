@@ -83,9 +83,20 @@
       $(`[data-n="${type}"]`).textContent = counts[type];
       $(`[data-count-for="${type}"]`).textContent = rows.length;
     });
-    // Closers are optional: with none selected each video is hook + body.
-    const total = counts.hook * counts.body * Math.max(counts.closer, 1);
-    $$("[data-closer-term]").forEach((el) => el.classList.toggle("term-off", counts.closer === 0));
+    // Closers are optional: with none selected each video is hook + body. In "distinct" mode
+    // each hook+body pair appears once and closers are spread across them (see variation.py).
+    const perMode = {
+      distinct: counts.hook * counts.body,
+      all: counts.hook * counts.body * Math.max(counts.closer, 1),
+    };
+    $$("[data-mode-count]").forEach((el) => { el.textContent = perMode[el.dataset.modeCount]; });
+    $("#modes").hidden = counts.closer < 2; // with 0 or 1 closers both modes are the same
+    const mode = selectedMode();
+    const total = perMode[mode];
+    $$("[data-closer-term]").forEach((el) => {
+      el.classList.toggle("term-off", counts.closer === 0);
+      el.classList.toggle("term-rotate", mode === "distinct" && counts.closer > 1);
+    });
     $("#count").textContent = total;
     $("#count-label").textContent = total === 1 ? "video" : "videos";
 
@@ -100,10 +111,12 @@
     } else if (failed) {
       note.textContent = "Quita los clips que no se pudieron procesar.";
       note.classList.add("over");
+    } else if (!counts.closer) {
+      note.textContent = "Sin cierres, cada video une un gancho y un contenido.";
+    } else if (mode === "distinct" && counts.closer > 1) {
+      note.textContent = `Cada gancho + contenido sale una vez; los ${counts.closer} cierres se reparten entre ellos.`;
     } else {
-      note.textContent = counts.closer
-        ? "Cada video une un gancho, un contenido y un cierre, en ese orden."
-        : "Sin cierres, cada video une un gancho y un contenido.";
+      note.textContent = "Cada video une un gancho, un contenido y un cierre, en ese orden.";
     }
     const button = $("#generate");
     if (!uploading) {
@@ -111,6 +124,8 @@
       button.textContent = total > 0 ? `Generar ${total} video${total === 1 ? "" : "s"}` : "Generar videos";
     }
   }
+
+  const selectedMode = () => $("input[name=mode]:checked")?.value || "distinct";
 
   // --- Local files: pick, preview, remove ------------------------------------
   // Frames are extracted one file at a time (decoding many videos at once is heavy), and
@@ -226,6 +241,7 @@
 
   // --- Row interactions (local and already-uploaded clips) --------------------
   app.addEventListener("change", (e) => {
+    if (e.target.name === "mode") return refreshFormula();
     const toggle = e.target.closest(".clip-toggle");
     if (!toggle) return;
     const row = toggle.closest(".clip");
@@ -348,7 +364,9 @@
         local.delete(localId);
       }
       setProgress("Iniciando generación", queue.length, queue.length, `${mb(totalBytes)} subidos`);
-      const result = await post(generateUrl);
+      const form = new FormData();
+      form.append("mode", selectedMode());
+      const result = await post(generateUrl, form);
       uploading = false;
       window.location.href = result.redirect;
     } catch (msg) {
@@ -426,6 +444,13 @@
         badge.textContent = text;
         if (v.error) badge.title = v.error;
         state.replaceChildren(badge);
+      }
+      const similarity = $("[data-similarity]", row);
+      if (similarity) {
+        similarity.className = `similarity similarity-${v.similar_level}`;
+        similarity.title = v.similar_note;
+        $("[data-similarity-text]", similarity).textContent =
+          v.similar_level === "high" ? `Casi igual · ${v.similar_percent} %` : `${v.similar_percent} % en común`;
       }
       row.dataset.status = v.status;
       row.className = `variant variant-${v.download_url ? "done" : v.status === "done" ? "expired" : v.status}`;

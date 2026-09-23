@@ -108,8 +108,10 @@ class GenerationRulesTests(MediaTestCase):
             for i in (1, 2):
                 self.ready_clip(project, t, i)
         with self.assertRaises(services.GenerationError):
-            services.generate_variants(project.pk)
+            services.generate_variants(project.pk, Project.Mode.ALL)  # 2 × 2 × 2 = 8
         self.assertFalse(Variant.objects.exists())
+        with mock.patch("combinator.tasks.render_variant"):
+            self.assertEqual(len(services.generate_variants(project.pk, Project.Mode.DISTINCT)), 4)
 
     def test_requires_hook_and_body(self):
         project = Project.objects.create(name="x", owner=self.user)
@@ -132,7 +134,7 @@ class GenerationRulesTests(MediaTestCase):
         self.assertEqual(len(variants), 6)
         self.assertTrue(all(v.closer is None for v in variants))
         self.assertEqual(variants[0].label, "GA01 + CO01")
-        self.assertEqual(variants[0].output_name, "lote_ga01_co01.mp4")
+        self.assertEqual(variants[0].output_name, "001_lote_ga01_co01.mp4")
 
     def test_closers_are_permuted_when_present(self):
         project = Project.objects.create(name="Lote", owner=self.user)
@@ -142,7 +144,20 @@ class GenerationRulesTests(MediaTestCase):
             self.ready_clip(project, Clip.Type.CLOSER, i)
         with mock.patch("combinator.tasks.render_variant"):
             variants = services.generate_variants(project.pk)
+        self.assertEqual([v.label for v in variants], ["GA01 + CO01 + CI01"])  # distinct mode: pair once
+
+    def test_all_mode_permutes_closers_too(self):
+        project = Project.objects.create(name="Lote", owner=self.user)
+        self.ready_clip(project, Clip.Type.HOOK, 1)
+        self.ready_clip(project, Clip.Type.BODY, 1)
+        for i in (1, 2):
+            self.ready_clip(project, Clip.Type.CLOSER, i)
+        with mock.patch("combinator.tasks.render_variant"):
+            variants = services.generate_variants(project.pk, Project.Mode.ALL)
         self.assertEqual([v.label for v in variants], ["GA01 + CO01 + CI01", "GA01 + CO01 + CI02"])
+        self.assertEqual([v.position for v in variants], [1, 2])
+        project.refresh_from_db()
+        self.assertEqual(project.mode, Project.Mode.ALL)
 
     def test_expired_outputs_are_deleted(self):
         project = Project.objects.create(name="x", owner=self.user, status=Project.Status.DONE)
@@ -215,7 +230,7 @@ class FullPipelineTests(MediaTestCase):
             self.stored_files(),
             sorted(f"projects/{project.pk}/outputs/{v.output_name}" for v in variants),
         )
-        self.assertEqual(variants[0].output_name, "campana-septiembre_ga01_co01_ci01.mp4")
+        self.assertEqual(variants[0].output_name, "001_campana-septiembre_ga01_co01_ci01.mp4")
 
     def test_render_without_closer(self):
         tmp = Path(self.media) / "_src"

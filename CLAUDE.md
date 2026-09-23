@@ -29,6 +29,11 @@ Configuración por variables de entorno en `config/settings.py` (`POSTGRES_*`, `
 
 SaaS web para producir mucho contenido para TikTok **sin IA**. El usuario crea un **proyecto**, sube clips en tres grupos (**Ganchos**, **Contenido**, **Cierres**), activa o desactiva los que quiere usar y el sistema genera con FFmpeg todas las combinaciones como MP4 listos para publicar. Ejemplo: 2 ganchos × 3 contenidos × 2 cierres = 12 videos.
 
+**Evitar contenido casi duplicado es parte del producto.** Las plataformas bajan el alcance de videos repetidos, así que el valor es probar ideas distintas, no multiplicar copias. Todo vive en `combinator/variation.py` (funciones puras, tests en `tests/test_variation.py`):
+- Modo `distinct` (por defecto): cada par gancho+contenido una sola vez y los cierres rotando. Modo `all`: todas las combinaciones. Se elige antes de generar y se guarda en `Project.mode`.
+- `publication_order`: fija `Variant.position` (#001…) para que los videos cercanos (seguidos y a dos posiciones) compartan lo mínimo; lo peor es el mismo gancho+contenido con solo otro cierre. La posición encabeza el nombre de archivo, así que el ZIP ya sale en orden de publicación.
+- `similarity`: por video, "high" (amarillo, "casi igual") si algún otro solo cambia el cierre, "low" en otro caso, con el % de duración compartida. Se calcula al vuelo en las vistas; no se guarda.
+
 **Los cierres son opcionales.** Sin cierres activos, cada video es gancho + contenido (2 × 3 = 6). Si hay cierres, también se combinan.
 
 Vocabulario: en código se mantienen `Project`/`hook`/`body`/`closer`; en la interfaz se dice **proyecto**, **gancho**, **contenido** y **cierre**, nunca "lote", "campaña", "hook", "body" o "closer". Los códigos de clip son `GA01`, `CO02` y `CI01` (dos letras porque Contenido y Cierre empiezan por C) y aparecen en la UI y en los nombres de archivo.
@@ -80,11 +85,11 @@ Pipeline: `SUBIDA → NORMALIZAR CLIPS → GENERAR COMBINACIONES → COLA → WO
 - Todos los modelos tienen un `uuid` público: **las URLs y el JSON usan solo UUIDs**, nunca el `pk` entero (que sigue siendo la clave interna y de las FKs).
 - `accounts.User`: modelo de usuario propio con `email` como `USERNAME_FIELD` (sin username). El login no distingue mayúsculas en el correo.
 
-Generar no espera a la normalización: los `Variant` se crean enseguida y `services.enqueue_ready_variants` encola cada uno cuando sus clips están listos (lo llaman `generate_variants` y `clip_normalized`, ambos con el lock de la fila del proyecto para no perder ninguno). Si un clip falla, sus variantes se marcan como fallidas. `render_variant` reclama la variante con un UPDATE condicional (`claim_variant`), así que encolar dos veces es inofensivo.
+Generar no espera a la normalización: los `Variant` se crean enseguida (ya ordenados, ver `variation.py`) y `services.enqueue_ready_variants` encola cada uno cuando sus clips están listos (lo llaman `generate_variants` y `clip_normalized`, ambos con el lock de la fila del proyecto para no perder ninguno). Si un clip falla, sus variantes se marcan como fallidas. `render_variant` reclama la variante con un UPDATE condicional (`claim_variant`), así que encolar dos veces es inofensivo.
 
-Los registros `Variant` se crean al pulsar "Generar" con `services.combinations()` (producto de ganchos × contenidos × cierres, o × `[None]` si no hay cierres) usando solo los clips habilitados. Usa siempre `Variant.clips` para recorrer los segmentos, porque omite el cierre vacío. Validar el límite de 100 antes de crear nada.
+Los registros `Variant` se crean al pulsar "Generar" con `services.combinations()` según el modo, usando solo los clips habilitados. Usa siempre `Variant.clips` para recorrer los segmentos, porque omite el cierre vacío. Validar el límite de 100 antes de crear nada.
 
 ### Pipeline de video
 1. **Normalizar cada clip una sola vez** a 1080×1920, 30 fps, H.264, `yuv420p`, AAC a 48 kHz. Se escala manteniendo la proporción y se rellena con barras (`scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2`). Los clips sin pista de audio necesitan un audio silencioso para que la concatenación no falle. La duración se obtiene con ffprobe.
 2. **Concatenar** los clips normalizados con el demuxer concat (`-f concat -safe 0 -i list.txt -c copy`). Así no se recodifica: el costo de cada variante es casi nulo y lo caro es la normalización. No concatenar nunca los originales sin normalizar.
-3. Nombres de salida trazables y guardados en la base de datos, p. ej. `<proyecto-slug>_ga02_co04_ci01.mp4` o `<proyecto-slug>_ga02_co04.mp4` sin cierre.
+3. Nombres de salida trazables, p. ej. `007_<proyecto-slug>_ga02_co04_ci01.mp4` (posición de publicación primero) o sin `_ci..` si no hay cierre.

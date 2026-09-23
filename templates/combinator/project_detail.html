@@ -67,6 +67,23 @@
       <span class="term"><b class="hook" data-n="hook">0</b><small>ganchos</small></span><span class="op">×</span><span class="term"><b class="body" data-n="body">0</b><small>contenidos</small></span><span class="op" data-closer-term>×</span><span class="term" data-closer-term><b class="closer" data-n="closer">0</b><small>cierres</small></span>
     </p>
     <p class="formula-result"><b id="count">{{ count }}</b> <span id="count-label">video{{ count|pluralize }}</span></p>
+    <fieldset class="modes" id="modes">
+      <legend>Cómo combinar</legend>
+      <label class="mode">
+        <input type="radio" name="mode" value="{{ modes.DISTINCT }}" checked>
+        <span class="mode-body">
+          <span class="mode-title">Variantes distintas <span class="mode-count" data-mode-count="{{ modes.DISTINCT }}"></span></span>
+          <small>Cada gancho + contenido una sola vez; los cierres se reparten. Evita videos casi iguales.</small>
+        </span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="mode" value="{{ modes.ALL }}">
+        <span class="mode-body">
+          <span class="mode-title">Todas las combinaciones <span class="mode-count" data-mode-count="{{ modes.ALL }}"></span></span>
+          <small>Incluye videos que solo cambian en el cierre.</small>
+        </span>
+      </label>
+    </fieldset>
     <button type="button" class="btn btn-primary btn-block" id="generate" disabled>Generar videos</button>
     <p class="panel-note" id="panel-note">Añade al menos un gancho y un contenido.</p>
     <div class="progress" id="progress" hidden>
@@ -83,6 +100,9 @@
       <div class="progress-bar"><i data-progress-bar></i></div>
     </div>
     <p class="panel-progress"><span id="done-count">{{ ready_total }}</span> listos para descargar</p>
+    {% if near_duplicates %}
+    <p class="panel-warning">{{ near_duplicates }} video{{ near_duplicates|pluralize }} solo cambia{{ near_duplicates|pluralize:"n" }} en el cierre respecto a otro. Publícalos separados o elige otros.</p>
+    {% endif %}
     <a class="btn btn-primary btn-block {% if not ready_total %}disabled{% endif %}" id="download-all" href="{% url 'combinator:download_all' project.uuid %}" aria-disabled="{% if ready_total %}false{% else %}true{% endif %}">Descargar todo (.zip)</a>
     <p class="panel-fine">Cada video se puede descargar durante {{ ttl_minutes }} minutos desde que termina. Después se borra, igual que los clips que subiste.</p>
     {% endif %}
@@ -91,15 +111,22 @@
 
 {% if variants %}
 <section class="variants">
-  <h2>Videos</h2>
+  <div class="variants-head">
+    <h2>Videos</h2>
+    <p>En orden de publicación: dos videos seguidos cambian lo máximo posible.</p>
+  </div>
   <ul class="variant-rows">
     {% for variant in variants %}
     <li class="variant variant-{{ variant.status }}" data-variant="{{ variant.uuid }}" data-status="{{ variant.status }}">
+      <span class="variant-number">#{{ variant.number }}</span>
       <span class="strip" style="--w: {% widthratio variant.total_duration max_duration 100 %}%" aria-hidden="true">
         {% for clip in variant.clips %}<i class="{{ clip.type }}" style="flex: {{ clip.duration|default:1|unlocalize }}"></i>{% endfor %}
       </span>
       <span class="variant-label">{% for clip in variant.clips %}{% if not forloop.first %} + {% endif %}<b class="{{ clip.type }}">{{ clip.code }}</b>{% endfor %}</span>
       <span class="variant-duration">{% if variant.total_duration %}{{ variant.total_duration|floatformat:0 }} s{% endif %}</span>
+      <span class="similarity similarity-{{ variant.similar_level }}" data-similarity title="{{ variant.similar_note }}">
+        <i aria-hidden="true"></i><span data-similarity-text>{% if variant.similar_level == 'high' %}Casi igual · {{ variant.similar_percent }} %{% else %}{{ variant.similar_percent }} % en común{% endif %}</span>
+      </span>
       <span class="variant-state" data-state>
         {% if variant.is_downloadable %}
           <a class="btn btn-small" href="{% url 'combinator:download_variant' variant.uuid %}">Descargar</a>
